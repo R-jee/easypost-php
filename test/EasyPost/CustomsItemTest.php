@@ -3,20 +3,19 @@
 namespace EasyPost\Test;
 
 use EasyPost\CustomsItem;
-use EasyPost\EasyPost;
-use EasyPost\Test\Fixture;
-use VCR\VCR;
+use EasyPost\EasyPostClient;
 
 class CustomsItemTest extends \PHPUnit\Framework\TestCase
 {
+    private static $client;
+
     /**
      * Setup the testing environment for this file.
      */
     public static function setUpBeforeClass(): void
     {
-        EasyPost::setApiKey(getenv('EASYPOST_TEST_API_KEY'));
-
-        VCR::turnOn();
+        TestUtil::setupVcrTests();
+        self::$client = new EasyPostClient(getenv('EASYPOST_TEST_API_KEY'));
     }
 
     /**
@@ -24,8 +23,7 @@ class CustomsItemTest extends \PHPUnit\Framework\TestCase
      */
     public static function tearDownAfterClass(): void
     {
-        VCR::eject();
-        VCR::turnOff();
+        TestUtil::teardownVcrTests();
     }
 
     /**
@@ -33,11 +31,11 @@ class CustomsItemTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreate()
     {
-        VCR::insertCassette('customs_items/create.yml');
+        TestUtil::setupCassette('customs_items/create.yml');
 
-        $customsItem = CustomsItem::create(Fixture::basicCustomsItem());
+        $customsItem = self::$client->customsItem->create(Fixture::basicCustomsItem());
 
-        $this->assertInstanceOf('\EasyPost\CustomsItem', $customsItem);
+        $this->assertInstanceOf(CustomsItem::class, $customsItem);
         $this->assertStringMatchesFormat('cstitem_%s', $customsItem->id);
         $this->assertEquals('23.25', $customsItem->value);
     }
@@ -47,13 +45,13 @@ class CustomsItemTest extends \PHPUnit\Framework\TestCase
      */
     public function testRetrieve()
     {
-        VCR::insertCassette('customs_items/retrieve.yml');
+        TestUtil::setupCassette('customs_items/retrieve.yml');
 
-        $customsItem = CustomsItem::create(Fixture::basicCustomsItem());
+        $customsItem = self::$client->customsItem->create(Fixture::basicCustomsItem());
 
-        $retrievedCustomsItem = CustomsItem::retrieve($customsItem->id);
+        $retrievedCustomsItem = self::$client->customsItem->retrieve($customsItem->id);
 
-        $this->assertInstanceOf('\EasyPost\CustomsItem', $retrievedCustomsItem);
+        $this->assertInstanceOf(CustomsItem::class, $retrievedCustomsItem);
         $this->assertEquals($customsItem, $retrievedCustomsItem);
     }
 }

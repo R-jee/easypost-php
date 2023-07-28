@@ -2,22 +2,22 @@
 
 namespace EasyPost\Test;
 
-use EasyPost\EasyPost;
+use EasyPost\EasyPostClient;
 use EasyPost\ScanForm;
-use EasyPost\Shipment;
-use EasyPost\Test\Fixture;
-use VCR\VCR;
+use EasyPost\Exception\General\EndOfPaginationException;
+use Exception;
 
 class ScanFormTest extends \PHPUnit\Framework\TestCase
 {
+    private static $client;
+
     /**
      * Setup the testing environment for this file.
      */
     public static function setUpBeforeClass(): void
     {
-        EasyPost::setApiKey(getenv('EASYPOST_TEST_API_KEY'));
-
-        VCR::turnOn();
+        TestUtil::setupVcrTests();
+        self::$client = new EasyPostClient(getenv('EASYPOST_TEST_API_KEY'));
     }
 
     /**
@@ -25,61 +25,85 @@ class ScanFormTest extends \PHPUnit\Framework\TestCase
      */
     public static function tearDownAfterClass(): void
     {
-        VCR::eject();
-        VCR::turnOff();
+        TestUtil::teardownVcrTests();
     }
 
     /**
-     * Test creating a scanform.
+     * Test creating a scanForm.
      */
     public function testCreate()
     {
-        VCR::insertCassette('scanforms/create.yml');
+        TestUtil::setupCassette('scanForms/create.yml');
 
-        $shipment = Shipment::create(Fixture::oneCallBuyShipment());
+        $shipment = self::$client->shipment->create(Fixture::oneCallBuyShipment());
 
-        $scanform = ScanForm::create([
+        $scanForm = self::$client->scanForm->create([
             'shipments' => [$shipment],
         ]);
 
-        $this->assertInstanceOf('\EasyPost\ScanForm', $scanform);
-        $this->assertStringMatchesFormat('sf_%s', $scanform->id);
+        $this->assertInstanceOf(ScanForm::class, $scanForm);
+        $this->assertStringMatchesFormat('sf_%s', $scanForm->id);
     }
 
     /**
-     * Test retrieving a scanform.
+     * Test retrieving a scanForm.
      */
     public function testRetrieve()
     {
-        VCR::insertCassette('scanforms/retrieve.yml');
+        TestUtil::setupCassette('scanForms/retrieve.yml');
 
-        $shipment = Shipment::create(Fixture::oneCallBuyShipment());
+        $shipment = self::$client->shipment->create(Fixture::oneCallBuyShipment());
 
-        $scanform = ScanForm::create([
+        $scanForm = self::$client->scanForm->create([
             'shipments' => [$shipment],
         ]);
 
-        $retrievedScanform = ScanForm::retrieve($scanform->id);
+        $retrievedScanform = self::$client->scanForm->retrieve($scanForm->id);
 
-        $this->assertInstanceOf('\EasyPost\ScanForm', $retrievedScanform);
-        $this->assertEquals($scanform, $retrievedScanform);
+        $this->assertInstanceOf(ScanForm::class, $retrievedScanform);
+        $this->assertEquals($scanForm, $retrievedScanform);
     }
 
     /**
-     * Test retrieving all scanforms.
+     * Test retrieving all scanForms.
      */
     public function testAll()
     {
-        VCR::insertCassette('scanforms/all.yml');
+        TestUtil::setupCassette('scanForms/all.yml');
 
-        $scanforms = ScanForm::all([
+        $scanForms = self::$client->scanForm->all([
             'page_size' => Fixture::pageSize(),
         ]);
 
-        $scanformsArray = $scanforms['scan_forms'];
+        $scanformsArray = $scanForms['scan_forms'];
 
         $this->assertLessThanOrEqual($scanformsArray, Fixture::pageSize());
-        $this->assertNotNull($scanforms['has_more']);
-        $this->assertContainsOnlyInstancesOf('\EasyPost\ScanForm', $scanformsArray);
+        $this->assertNotNull($scanForms['has_more']);
+        $this->assertContainsOnlyInstancesOf(ScanForm::class, $scanformsArray);
+    }
+
+    /**
+     * Test retrieving next page.
+     */
+    public function testGetNextPage()
+    {
+        TestUtil::setupCassette('scanForms/getNextPage.yml');
+
+        try {
+            $scanforms = self::$client->scanForm->all([
+                'page_size' => Fixture::pageSize(),
+            ]);
+            $nextPage = self::$client->scanForm->getNextPage($scanforms, Fixture::pageSize());
+
+            $firstIdOfFirstPage = $scanforms['scan_forms'][0]->id;
+            $secondIdOfSecondPage = $nextPage['scan_forms'][0]->id;
+
+            $this->assertNotEquals($firstIdOfFirstPage, $secondIdOfSecondPage);
+        } catch (Exception $error) {
+            if (!($error instanceof EndOfPaginationException)) {
+                throw new Exception('Test failed intentionally');
+            }
+            $this->assertTrue(true);
+        }
     }
 }

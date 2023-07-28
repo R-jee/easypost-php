@@ -5,15 +5,16 @@
         url: 'https://api.easypost.com/v2/addresses?page_size=5'
         headers:
             Host: api.easypost.com
+            Accept-Encoding: ''
             Accept: application/json
             Authorization: ''
             Content-Type: application/json
             User-Agent: ''
     response:
         status:
-            http_version: '2'
+            http_version: '1.1'
             code: '200'
-            message: ''
+            message: OK
         headers:
             x-frame-options: SAMEORIGIN
             x-xss-protection: '1; mode=block'
@@ -21,55 +22,55 @@
             x-download-options: noopen
             x-permitted-cross-domain-policies: none
             referrer-policy: strict-origin-when-cross-origin
-            x-ep-request-uuid: f060eade632a3520e78a9c7100126e42
+            x-ep-request-uuid: e26b982b639113f6e78aa08b001e1467
             cache-control: 'private, no-cache, no-store'
             pragma: no-cache
             expires: '0'
             content-type: 'application/json; charset=utf-8'
-            content-length: '2522'
-            etag: 'W/"b3232db87e7297b210e0307b7805a51b"'
-            x-runtime: '0.041214'
-            x-node: bigweb2nuq
-            x-version-label: easypost-202209201859-4397aee39f-master
+            content-length: '2470'
+            etag: 'W/"4dc072128f34169f63e89bbad9fa96ec"'
+            x-runtime: '0.039048'
+            x-node: bigweb12nuq
+            x-version-label: easypost-202212072114-cbd87d5dd7-master
             x-backend: easypost
-            x-proxied: ['intlb1nuq 29913d444b', 'extlb2nuq 29913d444b']
+            x-proxied: ['intlb2nuq 29913d444b', 'extlb2nuq 29913d444b']
             strict-transport-security: 'max-age=31536000; includeSubDomains; preload'
-        body: '{"addresses":[{"id":"adr_d1c42631392111ed8140ac1f6bc7b362","object":"Address","created_at":"2022-09-20T20:21:33+00:00","updated_at":"2022-09-20T20:21:33+00:00","name":"Jack Sparrow","company":null,"street1":"388 Townsend St","street2":"Apt 20","city":"San Francisco","state":"CA","zip":"94107","country":"US","phone":"<REDACTED>","email":"<REDACTED>","mode":"test","carrier_facility":null,"residential":null,"federal_tax_id":null,"state_tax_id":null,"verifications":[]},{"id":"adr_d1c167fb392111edb02cac1f6b0a0d1e","object":"Address","created_at":"2022-09-20T20:21:33+00:00","updated_at":"2022-09-20T20:21:33+00:00","name":"Elizabeth Swan","company":null,"street1":"179 N Harbor Dr","street2":null,"city":"Redondo Beach","state":"CA","zip":"90277","country":"US","phone":"<REDACTED>","email":"<REDACTED>","mode":"test","carrier_facility":null,"residential":null,"federal_tax_id":null,"state_tax_id":null,"verifications":[]},{"id":"adr_f6219992391b11edbdd7ac1f6bc72124","object":"Address","created_at":"2022-09-20T19:39:37+00:00","updated_at":"2022-09-20T19:39:37+00:00","name":"Elizabeth Swan","company":null,"street1":"179 N Harbor Dr","street2":null,"city":"Redondo Beach","state":"CA","zip":"90277","country":"US","phone":"<REDACTED>","email":"<REDACTED>","mode":"test","carrier_facility":null,"residential":null,"federal_tax_id":null,"state_tax_id":null,"verifications":[]},{"id":"adr_f61f798e391b11ed8039ac1f6b0a0d1e","object":"Address","created_at":"2022-09-20T19:39:37+00:00","updated_at":"2022-09-20T19:39:37+00:00","name":"JACK SPARROW","company":null,"street1":"388 TOWNSEND ST APT 20","street2":null,"city":"SAN FRANCISCO","state":"CA","zip":"94107-1670","country":"US","phone":"<REDACTED>","email":"<REDACTED>","mode":"test","carrier_facility":null,"residential":true,"federal_tax_id":null,"state_tax_id":null,"verifications":{"zip4":{"success":true,"errors":[],"details":null},"delivery":{"success":true,"errors":[],"details":{"latitude":37.77551,"longitude":-122.39697,"time_zone":"America\/Los_Angeles"}}}},{"id":"adr_e3cf9342391b11edb889ac1f6bc72124","object":"Address","created_at":"2022-09-20T19:39:06+00:00","updated_at":"2022-09-20T19:39:06+00:00","name":"Elizabeth Swan","company":null,"street1":"179 N Harbor Dr","street2":null,"city":"Redondo Beach","state":"CA","zip":"90277","country":"US","phone":"<REDACTED>","email":"<REDACTED>","mode":"test","carrier_facility":null,"residential":null,"federal_tax_id":null,"state_tax_id":null,"verifications":[]}],"has_more":true}'
+        body: '{"addresses":[{"id":"adr_b7d43471767e11ed8113ac1f6bc72124","object":"Address","created_at":"2022-12-07T22:30:14+00:00","updated_at":"2022-12-07T22:30:14+00:00","name":"Jack Sparrow","company":null,"street1":"388 Townsend St","street2":"Apt 20","city":"San Francisco","state":"CA","zip":"94107","country":"US","phone":"<REDACTED>","email":"<REDACTED>","mode":"test","carrier_facility":null,"residential":null,"federal_tax_id":null,"state_tax_id":null,"verifications":[]},{"id":"adr_b77ffe42767e11ed80edac1f6bc72124","object":"Address","created_at":"2022-12-07T22:30:13+00:00","updated_at":"2022-12-07T22:30:13+00:00","name":null,"company":null,"street1":"invalid","street2":null,"city":null,"state":null,"zip":null,"country":"US","phone":"<REDACTED>","email":"<REDACTED>","mode":"test","carrier_facility":null,"residential":null,"federal_tax_id":null,"state_tax_id":null,"verifications":[]},{"id":"adr_b73357f4767e11edac2cac1f6bc7bdc6","object":"Address","created_at":"2022-12-07T22:30:12+00:00","updated_at":"2022-12-07T22:30:12+00:00","name":"JACK SPARROW","company":null,"street1":"388 TOWNSEND ST APT 20","street2":null,"city":"SAN FRANCISCO","state":"CA","zip":"94107-1670","country":"US","phone":"<REDACTED>","email":"<REDACTED>","mode":"test","carrier_facility":null,"residential":true,"federal_tax_id":null,"state_tax_id":null,"verifications":{"zip4":{"success":true,"errors":[],"details":null},"delivery":{"success":true,"errors":[],"details":{"latitude":37.77551,"longitude":-122.39697,"time_zone":"America\/Los_Angeles"}}}},{"id":"adr_b70757bb767e11ed80b3ac1f6bc72124","object":"Address","created_at":"2022-12-07T22:30:12+00:00","updated_at":"2022-12-07T22:30:12+00:00","name":"Jack Sparrow","company":null,"street1":"388 Townsend St","street2":"Apt 20","city":"San Francisco","state":"CA","zip":"94107","country":"US","phone":"<REDACTED>","email":"<REDACTED>","mode":"test","carrier_facility":null,"residential":null,"federal_tax_id":null,"state_tax_id":null,"verifications":[]},{"id":"adr_b6b60b4c767e11edac0cac1f6bc7bdc6","object":"Address","created_at":"2022-12-07T22:30:12+00:00","updated_at":"2022-12-07T22:30:12+00:00","name":"Jack Sparrow","company":null,"street1":"388 Townsend St","street2":"Apt 20","city":"San Francisco","state":"CA","zip":"94107","country":"US","phone":"<REDACTED>","email":"<REDACTED>","mode":"test","carrier_facility":null,"residential":null,"federal_tax_id":null,"state_tax_id":null,"verifications":[]}],"has_more":true}'
         curl_info:
             url: 'https://api.easypost.com/v2/addresses?page_size=5'
             content_type: 'application/json; charset=utf-8'
             http_code: 200
-            header_size: 728
-            request_size: 296
+            header_size: 733
+            request_size: 298
             filetime: -1
             ssl_verify_result: 0
             redirect_count: 0
-            total_time: 0.299894
-            namelookup_time: 0.022057
-            connect_time: 0.097304
-            pretransfer_time: 0.180715
+            total_time: 0.264436
+            namelookup_time: 0.00261
+            connect_time: 0.068797
+            pretransfer_time: 0.155274
             size_upload: 0.0
-            size_download: 2522.0
-            speed_download: 8409.0
+            size_download: 2470.0
+            speed_download: 9340.0
             speed_upload: 0.0
-            download_content_length: 2522.0
+            download_content_length: 2470.0
             upload_content_length: 0.0
-            starttransfer_time: 0.299857
+            starttransfer_time: 0.264416
             redirect_time: 0.0
             redirect_url: ''
             primary_ip: 169.62.110.130
             certinfo: {  }
             primary_port: 443
-            local_ip: 10.130.6.16
-            local_port: 57897
-            http_version: 3
+            local_ip: 10.130.6.25
+            local_port: 57981
+            http_version: 2
             protocol: 2
             ssl_verifyresult: 0
             scheme: HTTPS
-            appconnect_time_us: 180637
-            connect_time_us: 97304
-            namelookup_time_us: 22057
-            pretransfer_time_us: 180715
+            appconnect_time_us: 155231
+            connect_time_us: 68797
+            namelookup_time_us: 2610
+            pretransfer_time_us: 155274
             redirect_time_us: 0
-            starttransfer_time_us: 299857
-            total_time_us: 299894
+            starttransfer_time_us: 264416
+            total_time_us: 264436

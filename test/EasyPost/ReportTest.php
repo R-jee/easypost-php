@@ -2,21 +2,23 @@
 
 namespace EasyPost\Test;
 
-use EasyPost\EasyPost;
+use EasyPost\EasyPostClient;
+use EasyPost\Exception\General\MissingParameterException;
+use EasyPost\Exception\General\EndOfPaginationException;
+use Exception;
 use EasyPost\Report;
-use EasyPost\Test\Fixture;
-use VCR\VCR;
 
 class ReportTest extends \PHPUnit\Framework\TestCase
 {
+    private static $client;
+
     /**
      * Setup the testing environment for this file.
      */
     public static function setUpBeforeClass(): void
     {
-        EasyPost::setApiKey(getenv('EASYPOST_TEST_API_KEY'));
-
-        VCR::turnOn();
+        TestUtil::setupVcrTests();
+        self::$client = new EasyPostClient(getenv('EASYPOST_TEST_API_KEY'));
     }
 
     /**
@@ -24,8 +26,7 @@ class ReportTest extends \PHPUnit\Framework\TestCase
      */
     public static function tearDownAfterClass(): void
     {
-        VCR::eject();
-        VCR::turnOff();
+        TestUtil::teardownVcrTests();
     }
 
     /**
@@ -33,15 +34,15 @@ class ReportTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreateReport()
     {
-        VCR::insertCassette('reports/createReport.yml');
+        TestUtil::setupCassette('reports/createReport.yml');
 
-        $report = Report::create([
+        $report = self::$client->report->create([
             'start_date' => Fixture::reportDate(),
             'end_date' => Fixture::reportDate(),
             'type' => Fixture::reportType(),
         ]);
 
-        $this->assertInstanceOf('\EasyPost\Report', $report);
+        $this->assertInstanceOf(Report::class, $report);
         $this->assertStringMatchesFormat('shprep_%s', $report->id);
     }
 
@@ -50,9 +51,9 @@ class ReportTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreateCustomColumnReport()
     {
-        VCR::insertCassette('reports/createCustomColumnReport.yml');
+        TestUtil::setupCassette('reports/createCustomColumnReport.yml');
 
-        $report = Report::create([
+        $report = self::$client->report->create([
             'start_date' => Fixture::reportDate(),
             'end_date' => Fixture::reportDate(),
             'type' => Fixture::reportType(),
@@ -62,7 +63,7 @@ class ReportTest extends \PHPUnit\Framework\TestCase
         // Reports are queued, so we can't retrieve it immediately.
         // Verifying columns would require parsing the CSV.
         // Verify parameters sent correctly by checking the URL in the cassette.
-        $this->assertInstanceOf('\EasyPost\Report', $report);
+        $this->assertInstanceOf(Report::class, $report);
     }
 
     /**
@@ -70,9 +71,9 @@ class ReportTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreateCustomAdditionalColumnReport()
     {
-        VCR::insertCassette('reports/createCustomAdditionalColumnReport.yml');
+        TestUtil::setupCassette('reports/createCustomAdditionalColumnReport.yml');
 
-        $report = Report::create([
+        $report = self::$client->report->create([
             'start_date' => Fixture::reportDate(),
             'end_date' => Fixture::reportDate(),
             'type' => Fixture::reportType(),
@@ -82,7 +83,7 @@ class ReportTest extends \PHPUnit\Framework\TestCase
         // Reports are queued, so we can't retrieve it immediately.
         // Verifying columns would require parsing the CSV.
         // Verify parameters sent correctly by checking the URL in the cassette.
-        $this->assertInstanceOf('\EasyPost\Report', $report);
+        $this->assertInstanceOf(Report::class, $report);
     }
 
     /**
@@ -90,17 +91,17 @@ class ReportTest extends \PHPUnit\Framework\TestCase
      */
     public function testRetrieveReport()
     {
-        VCR::insertCassette('reports/retrieveReport.yml');
+        TestUtil::setupCassette('reports/retrieveReport.yml');
 
-        $report = Report::create([
+        $report = self::$client->report->create([
             'start_date' => Fixture::reportDate(),
             'end_date' => Fixture::reportDate(),
             'type' => Fixture::reportType(),
         ]);
 
-        $retrievedReport = Report::retrieve($report->id);
+        $retrievedReport = self::$client->report->retrieve($report->id);
 
-        $this->assertInstanceOf('\EasyPost\Report', $retrievedReport);
+        $this->assertInstanceOf(Report::class, $retrievedReport);
         $this->assertEquals($report->start_date, $retrievedReport->start_date);
         $this->assertEquals($report->end_date, $retrievedReport->end_date);
     }
@@ -110,9 +111,9 @@ class ReportTest extends \PHPUnit\Framework\TestCase
      */
     public function testAll()
     {
-        VCR::insertCassette('reports/all.yml');
+        TestUtil::setupCassette('reports/all.yml');
 
-        $reports = Report::all([
+        $reports = self::$client->report->all([
             'type' => 'shipment',
             'page_size' => Fixture::pageSize(),
         ]);
@@ -121,7 +122,33 @@ class ReportTest extends \PHPUnit\Framework\TestCase
 
         $this->assertLessThanOrEqual($reportsArray, Fixture::pageSize());
         $this->assertNotNull($reports['has_more']);
-        $this->assertContainsOnlyInstancesOf('\EasyPost\Report', $reportsArray);
+        $this->assertContainsOnlyInstancesOf(Report::class, $reportsArray);
+    }
+
+    /**
+     * Test retrieving next page.
+     */
+    public function testGetNextPage()
+    {
+        TestUtil::setupCassette('reports/getNextPage.yml');
+
+        try {
+            $reports = self::$client->report->all([
+                'type' => 'shipment',
+                'page_size' => Fixture::pageSize(),
+            ]);
+            $nextPage = self::$client->report->getNextPage($reports, Fixture::pageSize());
+
+            $firstIdOfFirstPage = $reports['reports'][0]->id;
+            $secondIdOfSecondPage = $nextPage['reports'][0]->id;
+
+            $this->assertNotEquals($firstIdOfFirstPage, $secondIdOfSecondPage);
+        } catch (Exception $error) {
+            if (!($error instanceof EndOfPaginationException)) {
+                throw new Exception('Test failed intentionally');
+            }
+            $this->assertTrue(true);
+        }
     }
 
     /**
@@ -129,9 +156,9 @@ class ReportTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreateNoType()
     {
-        $this->expectException(\EasyPost\Error::class);
+        $this->expectException(MissingParameterException::class);
 
-        Report::create();
+        self::$client->report->create();
     }
 
     /**
@@ -139,8 +166,8 @@ class ReportTest extends \PHPUnit\Framework\TestCase
      */
     public function testAllNoType()
     {
-        $this->expectException(\EasyPost\Error::class);
+        $this->expectException(MissingParameterException::class);
 
-        Report::all();
+        self::$client->report->all();
     }
 }

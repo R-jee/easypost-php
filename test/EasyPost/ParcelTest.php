@@ -2,21 +2,20 @@
 
 namespace EasyPost\Test;
 
-use EasyPost\EasyPost;
+use EasyPost\EasyPostClient;
 use EasyPost\Parcel;
-use EasyPost\Test\Fixture;
-use VCR\VCR;
 
 class ParcelTest extends \PHPUnit\Framework\TestCase
 {
+    private static $client;
+
     /**
      * Setup the testing environment for this file.
      */
     public static function setUpBeforeClass(): void
     {
-        EasyPost::setApiKey(getenv('EASYPOST_TEST_API_KEY'));
-
-        VCR::turnOn();
+        TestUtil::setupVcrTests();
+        self::$client = new EasyPostClient(getenv('EASYPOST_TEST_API_KEY'));
     }
 
     /**
@@ -24,8 +23,7 @@ class ParcelTest extends \PHPUnit\Framework\TestCase
      */
     public static function tearDownAfterClass(): void
     {
-        VCR::eject();
-        VCR::turnOff();
+        TestUtil::teardownVcrTests();
     }
 
     /**
@@ -33,11 +31,11 @@ class ParcelTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreate()
     {
-        VCR::insertCassette('parcels/create.yml');
+        TestUtil::setupCassette('parcels/create.yml');
 
-        $parcel = Parcel::create(Fixture::basicParcel());
+        $parcel = self::$client->parcel->create(Fixture::basicParcel());
 
-        $this->assertInstanceOf('\EasyPost\Parcel', $parcel);
+        $this->assertInstanceOf(Parcel::class, $parcel);
         $this->assertStringMatchesFormat('prcl_%s', $parcel->id);
         $this->assertEquals(15.4, $parcel->weight);
     }
@@ -47,13 +45,13 @@ class ParcelTest extends \PHPUnit\Framework\TestCase
      */
     public function testRetrieve()
     {
-        VCR::insertCassette('parcels/retrieve.yml');
+        TestUtil::setupCassette('parcels/retrieve.yml');
 
-        $parcel = Parcel::create(Fixture::basicParcel());
+        $parcel = self::$client->parcel->create(Fixture::basicParcel());
 
-        $retrievedParcel = Parcel::retrieve($parcel->id);
+        $retrievedParcel = self::$client->parcel->retrieve($parcel->id);
 
-        $this->assertInstanceOf('\EasyPost\Parcel', $retrievedParcel);
+        $this->assertInstanceOf(Parcel::class, $retrievedParcel);
         $this->assertEquals($parcel, $retrievedParcel);
     }
 }

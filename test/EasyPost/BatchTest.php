@@ -3,21 +3,19 @@
 namespace EasyPost\Test;
 
 use EasyPost\Batch;
-use EasyPost\EasyPost;
-use EasyPost\Shipment;
-use EasyPost\Test\Fixture;
-use VCR\VCR;
+use EasyPost\EasyPostClient;
 
 class BatchTest extends \PHPUnit\Framework\TestCase
 {
+    private static $client;
+
     /**
      * Setup the testing environment for this file.
      */
     public static function setUpBeforeClass(): void
     {
-        EasyPost::setApiKey(getenv('EASYPOST_TEST_API_KEY'));
-
-        VCR::turnOn();
+        TestUtil::setupVcrTests();
+        self::$client = new EasyPostClient(getenv('EASYPOST_TEST_API_KEY'));
     }
 
     /**
@@ -25,8 +23,7 @@ class BatchTest extends \PHPUnit\Framework\TestCase
      */
     public static function tearDownAfterClass(): void
     {
-        VCR::eject();
-        VCR::turnOff();
+        TestUtil::teardownVcrTests();
     }
 
     /**
@@ -34,13 +31,13 @@ class BatchTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreate()
     {
-        VCR::insertCassette('batches/create.yml');
+        TestUtil::setupCassette('batches/create.yml');
 
-        $batch = Batch::create([
+        $batch = self::$client->batch->create([
             'shipments' => [Fixture::basicShipment()],
         ]);
 
-        $this->assertInstanceOf('\EasyPost\Batch', $batch);
+        $this->assertInstanceOf(Batch::class, $batch);
         $this->assertStringMatchesFormat('batch_%s', $batch->id);
         $this->assertNotNull($batch->shipments);
     }
@@ -50,15 +47,15 @@ class BatchTest extends \PHPUnit\Framework\TestCase
      */
     public function testRetrieve()
     {
-        VCR::insertCassette('batches/retrieve.yml');
+        TestUtil::setupCassette('batches/retrieve.yml');
 
-        $batch = Batch::create([
+        $batch = self::$client->batch->create([
             'shipments' => [Fixture::basicShipment()],
         ]);
 
-        $retrievedBatch = Batch::retrieve($batch->id);
+        $retrievedBatch = self::$client->batch->retrieve($batch->id);
 
-        $this->assertInstanceOf('\EasyPost\Batch', $retrievedBatch);
+        $this->assertInstanceOf(Batch::class, $retrievedBatch);
         $this->assertEquals($batch->id, $retrievedBatch->id);
     }
 
@@ -67,9 +64,9 @@ class BatchTest extends \PHPUnit\Framework\TestCase
      */
     public function testAll()
     {
-        VCR::insertCassette('batches/all.yml');
+        TestUtil::setupCassette('batches/all.yml');
 
-        $batches = Batch::all([
+        $batches = self::$client->batch->all([
             'page_size' => Fixture::pageSize(),
         ]);
 
@@ -77,7 +74,7 @@ class BatchTest extends \PHPUnit\Framework\TestCase
 
         $this->assertLessThanOrEqual($batchesArray, Fixture::pageSize());
         $this->assertNotNull($batches['has_more']);
-        $this->assertContainsOnlyInstancesOf('\EasyPost\Batch', $batchesArray);
+        $this->assertContainsOnlyInstancesOf(Batch::class, $batchesArray);
     }
 
     /**
@@ -85,14 +82,14 @@ class BatchTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreateAndBuy()
     {
-        VCR::insertCassette('batches/createAndBuy.yml');
+        TestUtil::setupCassette('batches/createAndBuy.yml');
 
-        $batch = Batch::create_and_buy([
+        $batch = self::$client->batch->createAndBuy([
             Fixture::oneCallBuyShipment(),
             Fixture::oneCallBuyShipment(),
         ]);
 
-        $this->assertInstanceOf('\EasyPost\Batch', $batch);
+        $this->assertInstanceOf(Batch::class, $batch);
         $this->assertStringMatchesFormat('batch_%s', $batch->id);
         $this->assertEquals(2, $batch->num_shipments);
     }
@@ -102,21 +99,18 @@ class BatchTest extends \PHPUnit\Framework\TestCase
      */
     public function testBuy()
     {
-        VCR::insertCassette('batches/buy.yml');
+        TestUtil::setupCassette('batches/buy.yml');
 
         $shipmentData = Fixture::oneCallBuyShipment();
 
-        $batch = Batch::create([
+        $batch = self::$client->batch->create([
             'shipments' => [$shipmentData],
         ]);
 
-        $batch->buy();
+        $boughtBatch = self::$client->batch->buy($batch->id);
 
-        $this->assertInstanceOf('\EasyPost\Batch', $batch);
-        $this->assertEquals(1, $batch->num_shipments);
-
-        // Return so other tests can reuse this object
-        return $batch;
+        $this->assertInstanceOf(Batch::class, $boughtBatch);
+        $this->assertEquals(1, $boughtBatch->num_shipments);
     }
 
     /**
@@ -127,21 +121,22 @@ class BatchTest extends \PHPUnit\Framework\TestCase
         $cassetteName = 'batches/createScanForm.yml';
         $testRequiresWait = true ? file_exists(dirname(__DIR__, 1) . "/cassettes/$cassetteName") === false : false;
 
-        VCR::insertCassette($cassetteName);
+        TestUtil::setupCassette($cassetteName);
 
-        $batch = Batch::create([
+        $batch = self::$client->batch->create([
             'shipments' => [Fixture::oneCallBuyShipment()],
         ]);
-        $batch->buy();
+        $boughtBatch = self::$client->batch->buy($batch->id);
 
         if ($testRequiresWait === true) {
             sleep(5); // Wait enough time for the batch to process buying the shipment
         }
 
-        $batch->create_scan_form();
+        $scanformBatch = self::$client->batch->createScanForm($boughtBatch->id);
 
-        // We can't assert anything meaningful here because the scanform gets queued for generation and may not be immediately available
-        $this->assertInstanceOf('\EasyPost\Batch', $batch);
+        // We can't assert anything meaningful here because the scanform gets queued for generation
+        // and may not be immediately available.
+        $this->assertInstanceOf(Batch::class, $scanformBatch);
     }
 
     /**
@@ -149,21 +144,23 @@ class BatchTest extends \PHPUnit\Framework\TestCase
      */
     public function testAddRemoveShipment()
     {
-        VCR::insertCassette('batches/addRemoveShipment.yml');
+        TestUtil::setupCassette('batches/addRemoveShipment.yml');
 
-        $shipment = Shipment::create(Fixture::oneCallBuyShipment());
+        $shipment = self::$client->shipment->create(Fixture::oneCallBuyShipment());
 
-        $batch = Batch::create();
+        $batch = self::$client->batch->create();
 
-        $batch->add_shipments([
-            'shipments' => [$shipment]
-        ]);
-        $this->assertEquals(1, $batch->num_shipments);
+        $shipmentsBatch = self::$client->batch->addShipments(
+            $batch->id,
+            ['shipments' => [$shipment]]
+        );
+        $this->assertEquals(1, $shipmentsBatch->num_shipments);
 
-        $batch->remove_shipments([
-            'shipments' => [$shipment]
-        ]);
-        $this->assertEquals(0, $batch->num_shipments);
+        $nonShipmentsBatch = self::$client->batch->removeShipments(
+            $batch->id,
+            ['shipments' => [$shipment]]
+        );
+        $this->assertEquals(0, $nonShipmentsBatch->num_shipments);
     }
 
     /**
@@ -174,22 +171,24 @@ class BatchTest extends \PHPUnit\Framework\TestCase
         $cassetteName = 'batches/label.yml';
         $testRequiresWait = true ? file_exists(dirname(__DIR__, 1) . "/cassettes/$cassetteName") === false : false;
 
-        VCR::insertCassette($cassetteName);
+        TestUtil::setupCassette($cassetteName);
 
-        $batch = Batch::create([
+        $batch = self::$client->batch->create([
             'shipments' => [Fixture::oneCallBuyShipment()],
         ]);
-        $batch->buy();
+        self::$client->batch->buy($batch->id);
 
         if ($testRequiresWait === true) {
             sleep(5); // Wait enough time for the batch to process buying the shipment
         }
 
-        $batch->label([
-            'file_format' => 'ZPL',
-        ]);
+        $labelBatch = self::$client->batch->label(
+            $batch->id,
+            ['file_format' => 'ZPL']
+        );
 
-        // We can't assert anything meaningful here because the label gets queued for generation and may not be immediately available
-        $this->assertInstanceOf('\EasyPost\Batch', $batch);
+        // We can't assert anything meaningful here because the label gets queued for generation
+        // and may not be immediately available.
+        $this->assertInstanceOf(Batch::class, $labelBatch);
     }
 }

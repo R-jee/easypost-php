@@ -2,26 +2,26 @@
 
 namespace EasyPost\Test;
 
-use EasyPost\Address;
-use EasyPost\EasyPost;
-use EasyPost\Error;
-use EasyPost\Parcel;
+use EasyPost\EasyPostClient;
+use EasyPost\Exception\General\EndOfPaginationException;
+use EasyPost\Exception\General\FilteringException;
+use EasyPost\Exception\General\InvalidParameterException;
+use EasyPost\Rate;
 use EasyPost\Shipment;
-use EasyPost\Test\Fixture;
-use VCR\VCR;
-
-EasyPost::setApiKey(getenv('EASYPOST_TEST_API_KEY'));
+use EasyPost\Util\Util;
+use Exception;
 
 class ShipmentTest extends \PHPUnit\Framework\TestCase
 {
+    private static $client;
+
     /**
      * Setup the testing environment for this file.
      */
     public static function setUpBeforeClass(): void
     {
-        EasyPost::setApiKey(getenv('EASYPOST_TEST_API_KEY'));
-
-        VCR::turnOn();
+        TestUtil::setupVcrTests();
+        self::$client = new EasyPostClient(getenv('EASYPOST_TEST_API_KEY'));
     }
 
     /**
@@ -29,8 +29,7 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
      */
     public static function tearDownAfterClass(): void
     {
-        VCR::eject();
-        VCR::turnOff();
+        TestUtil::teardownVcrTests();
     }
 
     /**
@@ -38,11 +37,11 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreate()
     {
-        VCR::insertCassette('shipments/create.yml');
+        TestUtil::setupCassette('shipments/create.yml');
 
-        $shipment = Shipment::create(Fixture::fullShipment());
+        $shipment = self::$client->shipment->create(Fixture::fullShipment());
 
-        $this->assertInstanceOf('\EasyPost\Shipment', $shipment);
+        $this->assertInstanceOf(Shipment::class, $shipment);
         $this->assertStringMatchesFormat('shp_%s', $shipment->id);
         $this->assertNotNull($shipment->rates);
         $this->assertEquals('PNG', $shipment->options->label_format);
@@ -55,13 +54,13 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
      */
     public function testRetrieve()
     {
-        VCR::insertCassette('shipments/retrieve.yml');
+        TestUtil::setupCassette('shipments/retrieve.yml');
 
-        $shipment = Shipment::create(Fixture::fullShipment());
+        $shipment = self::$client->shipment->create(Fixture::fullShipment());
 
-        $retrievedShipment = Shipment::retrieve($shipment->id);
+        $retrievedShipment = self::$client->shipment->retrieve($shipment->id);
 
-        $this->assertInstanceOf('\EasyPost\Shipment', $retrievedShipment);
+        $this->assertInstanceOf(Shipment::class, $retrievedShipment);
         $this->assertEquals($shipment->id, $retrievedShipment->id);
     }
 
@@ -70,9 +69,9 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
      */
     public function testAll()
     {
-        VCR::insertCassette('shipments/all.yml');
+        TestUtil::setupCassette('shipments/all.yml');
 
-        $shipments = Shipment::all([
+        $shipments = self::$client->shipment->all([
             'page_size' => Fixture::pageSize(),
         ]);
 
@@ -80,7 +79,32 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
 
         $this->assertLessThanOrEqual($shipmentsArray, Fixture::pageSize());
         $this->assertNotNull($shipments['has_more']);
-        $this->assertContainsOnlyInstancesOf('\EasyPost\Shipment', $shipmentsArray);
+        $this->assertContainsOnlyInstancesOf(Shipment::class, $shipmentsArray);
+    }
+
+    /**
+     * Test retrieving next page.
+     */
+    public function testGetNextPage()
+    {
+        TestUtil::setupCassette('shipments/getNextPage.yml');
+
+        try {
+            $shipments = self::$client->shipment->all([
+                'page_size' => Fixture::pageSize(),
+            ]);
+            $nextPage = self::$client->shipment->getNextPage($shipments, Fixture::pageSize());
+
+            $firstIdOfFirstPage = $shipments['shipments'][0]->id;
+            $secondIdOfSecondPage = $nextPage['shipments'][0]->id;
+
+            $this->assertNotEquals($firstIdOfFirstPage, $secondIdOfSecondPage);
+        } catch (Exception $error) {
+            if (!($error instanceof EndOfPaginationException)) {
+                throw new Exception('Test failed intentionally');
+            }
+            $this->assertTrue(true);
+        }
     }
 
     /**
@@ -88,15 +112,16 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
      */
     public function testBuy()
     {
-        VCR::insertCassette('shipments/buy.yml');
+        TestUtil::setupCassette('shipments/buy.yml');
 
-        $shipment = Shipment::create(Fixture::fullShipment());
+        $shipment = self::$client->shipment->create(Fixture::fullShipment());
 
-        $shipment->buy([
-            'rate' => $shipment->lowest_rate(),
-        ]);
+        $boughtShipment = self::$client->shipment->buy(
+            $shipment->id,
+            ['rate' => $shipment->lowestRate()]
+        );
 
-        $this->assertNotNull($shipment->postage_label);
+        $this->assertNotNull($boughtShipment->postage_label);
     }
 
     /**
@@ -104,13 +129,13 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
      */
     public function testBuyRateObject()
     {
-        VCR::insertCassette('shipments/buyRateObject.yml');
+        TestUtil::setupCassette('shipments/buyRateObject.yml');
 
-        $shipment = Shipment::create(Fixture::fullShipment());
+        $shipment = self::$client->shipment->create(Fixture::fullShipment());
 
-        $shipment->buy($shipment->lowest_rate());
+        $boughtShipment = self::$client->shipment->buy($shipment->id, $shipment->lowestRate());
 
-        $this->assertNotNull($shipment->postage_label);
+        $this->assertNotNull($boughtShipment->postage_label);
     }
 
     /**
@@ -118,17 +143,17 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
      */
     public function testRegenerateRates()
     {
-        VCR::insertCassette('shipments/regenerateRates.yml');
+        TestUtil::setupCassette('shipments/regenerateRates.yml');
 
-        $shipment = Shipment::create(Fixture::oneCallBuyShipment());
+        $shipment = self::$client->shipment->create(Fixture::oneCallBuyShipment());
 
-        $rates = $shipment->regenerate_rates();
+        $rates = self::$client->shipment->regenerateRates($shipment->id);
 
         $ratesArray = $rates['rates'];
 
         $this->assertIsArray($ratesArray);
         foreach ($ratesArray as $rate) {
-            $this->assertInstanceOf('\EasyPost\Rate', $rate);
+            $this->assertInstanceOf(Rate::class, $rate);
         }
     }
 
@@ -137,15 +162,16 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
      */
     public function testConvertLabel()
     {
-        VCR::insertCassette('shipments/convertLabel.yml');
+        TestUtil::setupCassette('shipments/convertLabel.yml');
 
-        $shipment = Shipment::create(Fixture::oneCallBuyShipment());
+        $shipment = self::$client->shipment->create(Fixture::oneCallBuyShipment());
 
-        $shipment->label([
-            'file_format' => 'ZPL',
-        ]);
+        $shipmentWithLabel = self::$client->shipment->label(
+            $shipment->id,
+            ['file_format' => 'ZPL']
+        );
 
-        $this->assertNotNull($shipment->postage_label->label_zpl_url);
+        $this->assertNotNull($shipmentWithLabel->postage_label->label_zpl_url);
     }
 
     /**
@@ -153,13 +179,13 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
      */
     public function testConvertLabelUnwrappedParam()
     {
-        VCR::insertCassette('shipments/convertLabelUnwrappedParam.yml');
+        TestUtil::setupCassette('shipments/convertLabelUnwrappedParam.yml');
 
-        $shipment = Shipment::create(Fixture::oneCallBuyShipment());
+        $shipment = self::$client->shipment->create(Fixture::oneCallBuyShipment());
 
-        $shipment->label('ZPL');
+        $shipmentWithLabel = self::$client->shipment->label($shipment->id, 'ZPL');
 
-        $this->assertNotNull($shipment->postage_label->label_zpl_url);
+        $this->assertNotNull($shipmentWithLabel->postage_label->label_zpl_url);
     }
 
     /**
@@ -170,19 +196,20 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
      */
     public function testInsure()
     {
-        VCR::insertCassette('shipments/insure.yml');
+        TestUtil::setupCassette('shipments/insure.yml');
 
         $shipmentData = Fixture::oneCallBuyShipment();
         // Set to 0 so USPS doesn't insure this automatically and we can insure the shipment manually
         $shipmentData['insurance'] = 0;
 
-        $shipment = Shipment::create($shipmentData);
+        $shipment = self::$client->shipment->create($shipmentData);
 
-        $shipment->insure([
-            'amount' => '100',
-        ]);
+        $insuredShipment = self::$client->shipment->insure(
+            $shipment->id,
+            ['amount' => '100']
+        );
 
-        $this->assertEquals('100.00', $shipment->insurance);
+        $this->assertEquals('100.00', $insuredShipment->insurance);
     }
 
     /**
@@ -193,17 +220,17 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
      */
     public function testInsureUnwrappedParam()
     {
-        VCR::insertCassette('shipments/insureUnwrappedParam.yml');
+        TestUtil::setupCassette('shipments/insureUnwrappedParam.yml');
 
         $shipmentData = Fixture::oneCallBuyShipment();
         // Set to 0 so USPS doesn't insure this automatically and we can insure the shipment manually
         $shipmentData['insurance'] = 0;
 
-        $shipment = Shipment::create($shipmentData);
+        $shipment = self::$client->shipment->create($shipmentData);
 
-        $shipment->insure('100');
+        $insuredShipment = self::$client->shipment->insure($shipment->id, '100');
 
-        $this->assertEquals('100.00', $shipment->insurance);
+        $this->assertEquals('100.00', $insuredShipment->insurance);
     }
 
     /**
@@ -215,35 +242,35 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
      */
     public function testRefund()
     {
-        VCR::insertCassette('shipments/refund.yml');
+        TestUtil::setupCassette('shipments/refund.yml');
 
-        $shipment = Shipment::create(Fixture::oneCallBuyShipment());
+        $shipment = self::$client->shipment->create(Fixture::oneCallBuyShipment());
 
-        $shipment->refund();
+        $refundedShipment = self::$client->shipment->refund($shipment->id);
 
-        $this->assertEquals('submitted', $shipment->refund_status);
+        $this->assertEquals('submitted', $refundedShipment->refund_status);
     }
 
     /**
-     * Test retrieving smartrates for a shipment.
+     * Test retrieving SmartRates for a shipment.
      */
-    public function testSmartrate()
+    public function testSmartRate()
     {
-        VCR::insertCassette('shipments/smartrates.yml');
+        TestUtil::setupCassette('shipments/smartrates.yml');
 
-        $shipment = Shipment::create(Fixture::basicShipment());
+        $shipment = self::$client->shipment->create(Fixture::basicShipment());
 
         $this->assertNotNull($shipment->rates);
 
-        $smartrates = $shipment->get_smartrates();
-        $this->assertEquals($shipment->rates[0]['id'], $smartrates[0]['id']);
-        $this->assertNotNull($smartrates[0]['time_in_transit']['percentile_50']);
-        $this->assertNotNull($smartrates[0]['time_in_transit']['percentile_75']);
-        $this->assertNotNull($smartrates[0]['time_in_transit']['percentile_85']);
-        $this->assertNotNull($smartrates[0]['time_in_transit']['percentile_90']);
-        $this->assertNotNull($smartrates[0]['time_in_transit']['percentile_95']);
-        $this->assertNotNull($smartrates[0]['time_in_transit']['percentile_97']);
-        $this->assertNotNull($smartrates[0]['time_in_transit']['percentile_99']);
+        $smartRates = self::$client->shipment->getSmartRates($shipment->id);
+        $this->assertEquals($shipment->rates[0]['id'], $smartRates[0]['id']);
+        $this->assertNotNull($smartRates[0]['time_in_transit']['percentile_50']);
+        $this->assertNotNull($smartRates[0]['time_in_transit']['percentile_75']);
+        $this->assertNotNull($smartRates[0]['time_in_transit']['percentile_85']);
+        $this->assertNotNull($smartRates[0]['time_in_transit']['percentile_90']);
+        $this->assertNotNull($smartRates[0]['time_in_transit']['percentile_95']);
+        $this->assertNotNull($smartRates[0]['time_in_transit']['percentile_97']);
+        $this->assertNotNull($smartRates[0]['time_in_transit']['percentile_99']);
     }
 
     /**
@@ -251,7 +278,7 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreateEmptyObjects()
     {
-        VCR::insertCassette('shipments/createEmptyObjects.yml');
+        TestUtil::setupCassette('shipments/createEmptyObjects.yml');
 
         $shipmentData = Fixture::basicShipment();
         $shipmentData['customs_info']['customs_items'] = [];
@@ -259,9 +286,9 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
         $shipmentData['tax_identifiers'] = null;
         $shipmentData['reference'] = '';
 
-        $shipment = Shipment::create($shipmentData);
+        $shipment = self::$client->shipment->create($shipmentData);
 
-        $this->assertInstanceOf('\EasyPost\Shipment', $shipment);
+        $this->assertInstanceOf(Shipment::class, $shipment);
         $this->assertStringMatchesFormat('shp_%s', $shipment->id);
         $this->assertNotEmpty($shipment->options); // The EasyPost API populates some default values here
         $this->assertEmpty($shipment->customs_info);
@@ -273,14 +300,14 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreateTaxIdentifiers()
     {
-        VCR::insertCassette('shipments/createTaxIdentifiers.yml');
+        TestUtil::setupCassette('shipments/createTaxIdentifiers.yml');
 
         $shipmentData = Fixture::basicShipment();
         $shipmentData['tax_identifiers'] = [Fixture::taxIdentifier()];
 
-        $shipment = Shipment::create($shipmentData);
+        $shipment = self::$client->shipment->create($shipmentData);
 
-        $this->assertInstanceOf('\EasyPost\Shipment', $shipment);
+        $this->assertInstanceOf(Shipment::class, $shipment);
         $this->assertStringMatchesFormat('shp_%s', $shipment->id);
         $this->assertEquals('IOSS', $shipment->tax_identifiers[0]['tax_id_type']);
     }
@@ -290,19 +317,19 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreateWithIds()
     {
-        VCR::insertCassette('shipments/createWithIds.yml');
+        TestUtil::setupCassette('shipments/createWithIds.yml');
 
-        $fromAddress = Address::create(Fixture::caAddress1());
-        $toAddress = Address::create(Fixture::caAddress1());
-        $parcel = Parcel::create(Fixture::basicParcel());
+        $fromAddress = self::$client->address->create(Fixture::caAddress1());
+        $toAddress = self::$client->address->create(Fixture::caAddress1());
+        $parcel = self::$client->parcel->create(Fixture::basicParcel());
 
-        $shipment = Shipment::create([
+        $shipment = self::$client->shipment->create([
             'from_address' => ['id' => $fromAddress->id],
             'to_address' => ['id' => $toAddress->id],
             'parcel' => ['id' => $parcel->id],
         ]);
 
-        $this->assertInstanceOf('\EasyPost\Shipment', $shipment);
+        $this->assertInstanceOf(Shipment::class, $shipment);
         $this->assertStringMatchesFormat('shp_%s', $shipment->id);
         $this->assertStringMatchesFormat('adr_%s', $shipment->from_address->id);
         $this->assertStringMatchesFormat('adr_%s', $shipment->to_address->id);
@@ -315,133 +342,134 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
      */
     public function testLowestRate()
     {
-        VCR::insertCassette('shipments/lowestRate.yml');
+        TestUtil::setupCassette('shipments/lowestRate.yml');
 
-        $shipment = Shipment::create(Fixture::fullShipment());
+        $shipment = self::$client->shipment->create(Fixture::fullShipment());
 
-        // Test lowest rate with no filters
-        $lowestRate = $shipment->lowest_rate();
+        // Test lowestRate with no filters
+        $lowestRate = $shipment->lowestRate();
         $this->assertEquals('First', $lowestRate['service']);
-        $this->assertEquals('5.57', $lowestRate['rate']);
+        $this->assertEquals('5.82', $lowestRate['rate']);
         $this->assertEquals('USPS', $lowestRate['carrier']);
 
-        // Test lowest rate with service filter (this rate is higher than the lowest but should filter)
-        $lowestRate = $shipment->lowest_rate([], ['Priority']);
+        // Test lowestRate with service filter (this rate is higher than the lowest but should filter)
+        $lowestRate = $shipment->lowestRate([], ['Priority']);
         $this->assertEquals('Priority', $lowestRate['service']);
-        $this->assertEquals('7.90', $lowestRate['rate']);
+        $this->assertEquals('8.15', $lowestRate['rate']);
         $this->assertEquals('USPS', $lowestRate['carrier']);
 
-        // Test lowest rate with carrier filter (should error due to bad carrier)
+        // Test lowestRate with carrier filter (should error due to bad carrier)
         try {
-            $lowestRate = $shipment->lowest_rate(['BAD CARRIER'], []);
-        } catch (Error $error) {
+            $lowestRate = $shipment->lowestRate(['BAD CARRIER'], []);
+        } catch (FilteringException $error) {
             $this->assertEquals('No rates found.', $error->getMessage());
         }
     }
 
     /**
-     * Test various usage alterations of the lowest_rate method when excluding params by appending `!` to the string.
+     * Test various usage alterations of the lowestRate method when excluding params by appending `!` to the string.
      */
     public function testLowestRateExclusions()
     {
-        VCR::insertCassette('shipments/lowestRateExclusions.yml');
+        TestUtil::setupCassette('shipments/lowestRateExclusions.yml');
 
-        $shipment = Shipment::create(Fixture::fullShipment());
+        $shipment = self::$client->shipment->create(Fixture::fullShipment());
 
-        // Test lowest rate by excluding a carrier (this is a weak test but we cannot assume existence of a non-USPS carrier)
-        $lowestRate = $shipment->lowest_rate(['!RandomCarrier']);
+        // Test lowest rate by excluding a carrier (this is a weak test but we cannot assume existence
+        // of a non-USPS carrier).
+        $lowestRate = $shipment->lowestRate(['!RandomCarrier']);
         $this->assertEquals('First', $lowestRate['service']);
-        $this->assertEquals('5.57', $lowestRate['rate']);
+        $this->assertEquals('5.82', $lowestRate['rate']);
         $this->assertEquals('USPS', $lowestRate['carrier']);
 
         // Test lowest rate by excluding the `Priority` service
-        $lowestRate = $shipment->lowest_rate([], ['!Priority']);
+        $lowestRate = $shipment->lowestRate([], ['!Priority']);
         $this->assertEquals('First', $lowestRate['service']);
-        $this->assertEquals('5.57', $lowestRate['rate']);
+        $this->assertEquals('5.82', $lowestRate['rate']);
         $this->assertEquals('USPS', $lowestRate['carrier']);
     }
 
     /**
-     * Test various usage alterations of the lowest_smartrate method.
+     * Test various usage alterations of the `lowestSmartRate` and getLowestSmartRate` methods.
+     *
+     * These tests are unfortunately combined because the VCR can't pull cassettes correctly
+     * when testing these two functions in different tests/cassettes.
      */
-    public function testLowestSmartrate()
+    public function testLowestSmartRateVariations()
     {
-        VCR::insertCassette('shipments/lowestSmartrate.yml');
+        TestUtil::setupCassette('shipments/lowestSmartRateVariations.yml');
 
-        $shipment = Shipment::create(Fixture::fullShipment());
+        $shipment = self::$client->shipment->create(Fixture::fullShipment());
 
-        // Test lowest rate with no filters
-        $lowestRate = $shipment->lowest_smartrate(2, 'percentile_90');
-        $this->assertEquals('First', $lowestRate['service']);
-        $this->assertEquals(5.57, $lowestRate['rate']);
-        $this->assertEquals('USPS', $lowestRate['carrier']);
+        // Test lowestSmartRate with no filters
+        $lowestSmartRate = self::$client->shipment->lowestSmartRate($shipment->id, 3, 'percentile_85');
+        $this->assertEquals('First', $lowestSmartRate['service']);
+        $this->assertEquals(5.82, $lowestSmartRate['rate']);
+        $this->assertEquals('USPS', $lowestSmartRate['carrier']);
 
-        // Test lowest smartrate with invalid filters (should error due to strict delivery_days)
+        // Test lowestSmartRate with invalid filters (should error due to strict delivery_days)
         try {
-            $lowestRate = $shipment->lowest_smartrate(0, 'percentile_90');
-        } catch (Error $error) {
+            self::$client->shipment->lowestSmartRate($shipment->id, 0, 'percentile_85');
+        } catch (FilteringException $error) {
             $this->assertEquals('No rates found.', $error->getMessage());
         }
 
-        // Test lowest smartrate with invalid filters (should error due to invalid delivery_accuracy)
+        // Test lowestSmartRate with invalid filters (should error due to invalid delivery_accuracy)
         try {
-            $lowestRate = $shipment->lowest_rate(3, 'BAD_ACCURACY');
-        } catch (Error $error) {
-            $this->assertEquals('No rates found.', $error->getMessage());
+            self::$client->shipment->lowestSmartRate($shipment->id, 3, 'BAD_ACCURACY');
+        } catch (InvalidParameterException $error) {
+            $this->assertEquals(
+                'Invalid delivery_accuracy value, must be one of: ["percentile_50","percentile_75","percentile_85","percentile_90","percentile_95","percentile_97","percentile_99"]', // phpcs:ignore
+                $error->getMessage()
+            );
         }
-    }
 
-    /**
-     * Test various usage alterations of the get_lowest_smartrate method.
-     */
-    public function testGetLowestSmartrate()
-    {
-        VCR::insertCassette('shipments/getLowestSmartrate.yml');
+        $shipment = self::$client->shipment->create(Fixture::basicShipment());
+        $smartRates = self::$client->shipment->getSmartRates($shipment->id);
 
-        $shipment = Shipment::create(Fixture::fullShipment());
-        $smartrates = $shipment->get_smartrates();
+        // Test lowestSmartRate with valid filters
+        $lowestSmartRate = Util::getLowestSmartRate($smartRates, 3, 'percentile_85');
+        $this->assertEquals('First', $lowestSmartRate['service']);
+        $this->assertEquals(5.82, $lowestSmartRate['rate']);
+        $this->assertEquals('USPS', $lowestSmartRate['carrier']);
 
-        // Test lowest smartrate with valid filters
-        $lowestSmartrate = Shipment::get_lowest_smartrate($smartrates, 2, 'percentile_90');
-        $this->assertEquals('First', $lowestSmartrate['service']);
-        $this->assertEquals(5.57, $lowestSmartrate['rate']);
-        $this->assertEquals('USPS', $lowestSmartrate['carrier']);
-
-        // Test lowest smartrate with invalid filters (should error due to strict delivery_days)
+        // Test lowestSmartRate with invalid filters (should error due to strict delivery_days)
         try {
-            $lowestSmartrate = Shipment::get_lowest_smartrate($smartrates, 0, 'percentile_90');
-        } catch (Error $error) {
+            Util::getLowestSmartRate($smartRates, 0, 'percentile_90');
+        } catch (FilteringException $error) {
             $this->assertEquals('No rates found.', $error->getMessage());
         }
 
-        // Test lowest smartrate with invalid filters (should error due to invalid delivery_accuracy)
+        // Test lowestSmartRate with invalid filters (should error due to invalid delivery_accuracy)
         try {
-            $lowestSmartrate = Shipment::get_lowest_smartrate($smartrates, 3, 'BAD_ACCURACY');
-        } catch (Error $error) {
-            $this->assertEquals('Invalid delivery_accuracy value, must be one of: ["percentile_50","percentile_75","percentile_85","percentile_90","percentile_95","percentile_97","percentile_99"]', $error->getMessage());
+            Util::getLowestSmartRate($smartRates, 3, 'BAD_ACCURACY');
+        } catch (InvalidParameterException $error) {
+            $this->assertEquals(
+                'Invalid delivery_accuracy value, must be one of: ["percentile_50","percentile_75","percentile_85","percentile_90","percentile_95","percentile_97","percentile_99"]', // phpcs:ignore
+                $error->getMessage()
+            );
         }
     }
 
     /**
      * Tests generating a form for a shipment.
-     *
-     * @throws Error
      */
     public function testGenerateForm()
     {
-        VCR::insertCassette('shipments/generateForm.yml');
+        TestUtil::setupCassette('shipments/generateForm.yml');
 
-        $shipment = Shipment::create(Fixture::oneCallBuyShipment());
+        $shipment = self::$client->shipment->create(Fixture::oneCallBuyShipment());
 
         $formType = 'return_packing_slip';
-        $shipment->generate_form(
+        $shipmentWithForm = self::$client->shipment->generateForm(
+            $shipment->id,
             $formType,
             Fixture::rmaFormOtions()
         );
 
-        $this->assertEquals(1, count($shipment->forms));
+        $this->assertEquals(1, count($shipmentWithForm->forms));
 
-        $form = $shipment->forms[0];
+        $form = $shipmentWithForm->forms[0];
 
         $this->assertEquals($formType, $form->form_type);
         $this->assertNotNull($form->form_url);
@@ -450,13 +478,13 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
     /**
      * Tests creating a carbon offset shipment.
      */
-    public function testCreatebasicShipment()
+    public function testCreateCarbonOffsetShipment()
     {
-        VCR::insertCassette('shipments/createCarbonOffsetShipment.yml');
+        TestUtil::setupCassette('shipments/createCarbonOffsetShipment.yml');
 
-        $shipment = Shipment::create(Fixture::basicShipment(), null, true);
+        $shipment = self::$client->shipment->create(Fixture::basicShipment(), true);
 
-        $this->assertInstanceOf('\EasyPost\Shipment', $shipment);
+        $this->assertInstanceOf(Shipment::class, $shipment);
 
         foreach ($shipment->rates as $rate) {
             $this->assertNotNull($rate->carbon_offset);
@@ -466,24 +494,23 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
     /**
      * Tests buying a carbon offset shipment.
      */
-    public function testBuybasicShipment()
+    public function testBuyCarbonOffsetShipment()
     {
-        VCR::insertCassette('shipments/buyCarbonOffsetShipment.yml');
+        TestUtil::setupCassette('shipments/buyCarbonOffsetShipment.yml');
 
-        $shipment = Shipment::create(Fixture::basicShipment());
+        $shipment = self::$client->shipment->create(Fixture::basicShipment());
 
-        $shipment->buy(
-            [
-                'rate' => $shipment->lowest_rate(),
-            ],
+        $boughtShipment = self::$client->shipment->buy(
+            $shipment->id,
+            ['rate' => $shipment->lowestRate()],
             true,
         );
 
-        $this->assertInstanceOf('\EasyPost\Shipment', $shipment);
+        $this->assertInstanceOf(Shipment::class, $boughtShipment);
 
         $foundCarbonOffset = false;
 
-        foreach ($shipment->fees as $fee) {
+        foreach ($boughtShipment->fees as $fee) {
             if ($fee->type == 'CarbonOffsetFee') {
                 $foundCarbonOffset = true;
             }
@@ -495,13 +522,13 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
     /**
      * Tests one call buy a carbon offset shipment.
      */
-    public function testOneCallBuybasicShipment()
+    public function testOneCallBuyCarbonOffsetShipment()
     {
-        VCR::insertCassette('shipments/oneCallBuyCarbonOffsetShipment.yml');
+        TestUtil::setupCassette('shipments/oneCallBuyCarbonOffsetShipment.yml');
 
-        $shipment = Shipment::create(Fixture::oneCallBuyShipment(), null, true);
+        $shipment = self::$client->shipment->create(Fixture::oneCallBuyShipment(), true);
 
-        $this->assertInstanceOf('\EasyPost\Shipment', $shipment);
+        $this->assertInstanceOf(Shipment::class, $shipment);
 
         foreach ($shipment->rates as $rate) {
             $this->assertNotNull($rate->carbon_offset);
@@ -513,13 +540,55 @@ class ShipmentTest extends \PHPUnit\Framework\TestCase
      */
     public function testRerateShipmentWithCarbonOffset()
     {
-        VCR::insertCassette('shipments/rerateCarbonOffsetShipment.yml');
+        TestUtil::setupCassette('shipments/rerateCarbonOffsetShipment.yml');
 
-        $shipment = Shipment::create(Fixture::oneCallBuyShipment());
+        $shipment = self::$client->shipment->create(Fixture::oneCallBuyShipment());
 
-        $newCarbonOffset = $shipment->regenerate_rates(null, true);
+        $newCarbonOffset = self::$client->shipment->regenerateRates($shipment->id, null, true);
         foreach ($newCarbonOffset->rates as $rate) {
             $this->assertNotNull($rate->carbon_offset);
+        }
+    }
+
+    /**
+     * Tests buying a shipment with an end shipper.
+     */
+    public function testBuyShipmentWithEndShipper()
+    {
+        TestUtil::setupCassette('shipments/buyShipmentWithEndShipper.yml');
+
+        $endShipper = self::$client->endShipper->create(Fixture::caAddress1());
+
+        $shipment = self::$client->shipment->create(Fixture::basicShipment());
+
+        $lowestRate = $shipment->lowestRate();
+
+        $boughtShipment = self::$client->shipment->buy(
+            $shipment->id,
+            ['rate' => $lowestRate],
+            false,
+            $endShipper->id
+        );
+
+        $this->assertNotNull($boughtShipment->postage_label);
+    }
+
+    /**
+     * Tests that we retrieve time-in-transit data for each of the Rates of a Shipment.
+     */
+    public function testRetrieveEstimatedDeliveryDate()
+    {
+        TestUtil::setupCassette('shipments/retrieveEstimatedDeliveryDate.yml');
+
+        $shipment = self::$client->shipment->create(Fixture::basicShipment());
+
+        $rates = self::$client->shipment->retrieveEstimatedDeliveryDate(
+            $shipment->id,
+            Fixture::plannedShipDate(),
+        );
+
+        foreach ($rates as $entry) {
+            $this->assertNotNull($entry->easypost_time_in_transit_data);
         }
     }
 }

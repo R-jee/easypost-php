@@ -19,11 +19,13 @@ class Fixture
         return self::readFixtureData()['page_sizes']['five_results'];
     }
 
-    // This is the USPS carrier account ID that comes with your EasyPost account by default and should be used for all tests
+    // This is the USPS carrier account ID that comes with your EasyPost account by
+    // default and should be used for all tests.
     public static function uspsCarrierAccountId()
     {
         // Fallback to the EasyPost PHP Client Library Test User USPS carrier account ID due to strict matching
-        $uspsCarrierAccountId = getenv('USPS_CARRIER_ACCOUNT_ID') !== false ? getenv('USPS_CARRIER_ACCOUNT_ID') : 'ca_8dc116debcdb49b5a66a2ddee4612600';
+        $uspsCarrierAccountId = getenv('USPS_CARRIER_ACCOUNT_ID') !== false
+            ? getenv('USPS_CARRIER_ACCOUNT_ID') : 'ca_8dc116debcdb49b5a66a2ddee4612600';
 
         return $uspsCarrierAccountId;
     }
@@ -120,7 +122,7 @@ class Fixture
     // USPS only does "next-day" pickups including Saturday but not Sunday or Holidays.
     public static function basicPickup()
     {
-        $pickupDate = '2022-08-18';
+        $pickupDate = '2022-12-09';
 
         $pickupData = self::readFixtureData()['pickups']['basic'];
         $pickupData['min_datetime'] = $pickupDate;
@@ -159,7 +161,7 @@ class Fixture
         $eventBytesFilepath = file("$currentDir/examples/official/fixtures/event-body.json");
         $data = $eventBytesFilepath[0];
 
-        return utf8_encode(json_encode(json_decode($data, true)));
+        return mb_convert_encoding(json_encode(json_decode($data, true)), 'UTF-8', mb_list_encodings());
     }
 
     // The credit card details below are for a valid proxy card usable
@@ -173,5 +175,10 @@ class Fixture
     public static function rmaFormOtions()
     {
         return self::readFixtureData()['form_options']['rma'];
+    }
+
+    public static function plannedShipDate()
+    {
+        return '2023-04-28';
     }
 }

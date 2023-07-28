@@ -3,20 +3,21 @@
 namespace EasyPost\Test;
 
 use EasyPost\CarrierAccount;
-use EasyPost\EasyPost;
-use EasyPost\Test\Fixture;
-use VCR\VCR;
+use EasyPost\EasyPostClient;
+use EasyPost\Exception\Api\ApiException;
+use EasyPost\Exception\General\MissingParameterException;
 
 class CarrierAccountTest extends \PHPUnit\Framework\TestCase
 {
+    private static $client;
+
     /**
      * Setup the testing environment for this file.
      */
     public static function setUpBeforeClass(): void
     {
-        EasyPost::setApiKey(getenv('EASYPOST_PROD_API_KEY'));
-
-        VCR::turnOn();
+        TestUtil::setupVcrTests();
+        self::$client = new EasyPostClient(getenv('EASYPOST_TEST_API_KEY'));
     }
 
     /**
@@ -24,8 +25,7 @@ class CarrierAccountTest extends \PHPUnit\Framework\TestCase
      */
     public static function tearDownAfterClass(): void
     {
-        VCR::eject();
-        VCR::turnOff();
+        TestUtil::teardownVcrTests();
     }
 
     /**
@@ -33,15 +33,74 @@ class CarrierAccountTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreate()
     {
-        VCR::insertCassette('carrier_accounts/create.yml');
+        TestUtil::setupCassette('carrier_accounts/create.yml');
 
-        $carrierAccount = CarrierAccount::create(Fixture::basicCarrierAccount());
+        self::$client = new EasyPostClient(getenv('EASYPOST_PROD_API_KEY'));
+
+        $carrierAccount = self::$client->carrierAccount->create(Fixture::basicCarrierAccount());
 
         $this->assertEquals('DhlEcsAccount', $carrierAccount->type);
-        $this->assertInstanceOf('\EasyPost\CarrierAccount', $carrierAccount);
+        $this->assertInstanceOf(CarrierAccount::class, $carrierAccount);
         $this->assertStringMatchesFormat('ca_%s', $carrierAccount->id);
 
-        $carrierAccount->delete(); // Delete the carrier account once it's done being tested.
+        // Delete the carrier account once it's done being tested.
+        self::$client->carrierAccount->delete($carrierAccount->id);
+    }
+
+    /**
+     * Test creating a carrier account.
+     */
+    public function testCreateWithoutType()
+    {
+        self::$client = new EasyPostClient(getenv('EASYPOST_PROD_API_KEY'));
+
+        $params = Fixture::basicCarrierAccount();
+        unset($params['type']);
+
+        try {
+            $carrierAccount = self::$client->carrierAccount->create($params);
+
+            // Delete the carrier account once it's done being tested (should not be reached).
+            self::$client->carrierAccount->delete($carrierAccount->id);
+        } catch (MissingParameterException $error) {
+            $this->assertEquals('type is required.', $error->getMessage());
+        }
+    }
+
+    /**
+     * Test creating a carrier account with custom workflow such as FedEx or UPS.
+     *
+     * We purposefully don't pass data here because real data is required for this endpoint
+     * which we don't have in a test context, simply assert the error matches when no data is passed.
+     */
+    public function testCreateWithCustomWorkflow()
+    {
+        TestUtil::setupCassette('carrier_accounts/createWithCustomWorkflow.yml');
+
+        self::$client = new EasyPostClient(getenv('EASYPOST_PROD_API_KEY'));
+
+        $data = [];
+        $data['type'] = 'FedexAccount';
+        // We have to send some registration data, otherwise API will throw a 400 Bad Request
+        $data['registration_data'] = ['some' => 'data'];
+
+        try {
+            $carrierAccount = self::$client->carrierAccount->create($data);
+            // Delete the carrier account once it's done being tested (should not be reached).
+            self::$client->carrierAccount->delete($carrierAccount->id);
+        } catch (ApiException $error) {
+            $this->assertEquals(422, $error->getHttpStatus());
+            $errorFound = false;
+            $errors = $error->errors;
+            foreach ($errors as $error) {
+                if ($error['field'] == 'account_number' && $error['message'] == 'must be present and a string') {
+                    $errorFound = true;
+                    break;
+                }
+            }
+        }
+
+        $this->assertTrue($errorFound);
     }
 
     /**
@@ -49,16 +108,19 @@ class CarrierAccountTest extends \PHPUnit\Framework\TestCase
      */
     public function testRetrieve()
     {
-        VCR::insertCassette('carrier_accounts/retrieve.yml');
+        TestUtil::setupCassette('carrier_accounts/retrieve.yml');
 
-        $carrierAccount = CarrierAccount::create(Fixture::basicCarrierAccount());
+        self::$client = new EasyPostClient(getenv('EASYPOST_PROD_API_KEY'));
 
-        $retrievedCarrierAccount = CarrierAccount::retrieve($carrierAccount->id);
+        $carrierAccount = self::$client->carrierAccount->create(Fixture::basicCarrierAccount());
 
-        $this->assertInstanceOf('\EasyPost\CarrierAccount', $retrievedCarrierAccount);
+        $retrievedCarrierAccount = self::$client->carrierAccount->retrieve($carrierAccount->id);
+
+        $this->assertInstanceOf(CarrierAccount::class, $retrievedCarrierAccount);
         $this->assertEquals($carrierAccount, $retrievedCarrierAccount);
 
-        $carrierAccount->delete(); // Delete the carrier account once it's done being tested.
+        // Delete the carrier account once it's done being tested.
+        self::$client->carrierAccount->delete($retrievedCarrierAccount->id);
     }
 
     /**
@@ -66,11 +128,13 @@ class CarrierAccountTest extends \PHPUnit\Framework\TestCase
      */
     public function testAll()
     {
-        VCR::insertCassette('carrier_accounts/all.yml');
+        TestUtil::setupCassette('carrier_accounts/all.yml');
 
-        $carrierAccounts = CarrierAccount::all();
+        self::$client = new EasyPostClient(getenv('EASYPOST_PROD_API_KEY'));
 
-        $this->assertContainsOnlyInstancesOf('\EasyPost\CarrierAccount', $carrierAccounts);
+        $carrierAccounts = self::$client->carrierAccount->all();
+
+        $this->assertContainsOnlyInstancesOf(CarrierAccount::class, $carrierAccounts);
     }
 
     /**
@@ -78,20 +142,23 @@ class CarrierAccountTest extends \PHPUnit\Framework\TestCase
      */
     public function testUpdate()
     {
-        VCR::insertCassette('carrier_accounts/update.yml');
+        TestUtil::setupCassette('carrier_accounts/update.yml');
 
-        $carrierAccount = CarrierAccount::create(Fixture::basicCarrierAccount());
+        self::$client = new EasyPostClient(getenv('EASYPOST_PROD_API_KEY'));
+
+        $carrierAccount = self::$client->carrierAccount->create(Fixture::basicCarrierAccount());
 
         $testDescription = 'My custom description';
+        $params = ['description' => $testDescription];
 
-        $carrierAccount->description = $testDescription;
-        $carrierAccount->save();
+        $updatedCarrierAccount = self::$client->carrierAccount->update($carrierAccount->id, $params);
 
-        $this->assertInstanceOf('\EasyPost\CarrierAccount', $carrierAccount);
-        $this->assertStringMatchesFormat('ca_%s', $carrierAccount->id);
-        $this->assertEquals($testDescription, $carrierAccount->description);
+        $this->assertInstanceOf(CarrierAccount::class, $updatedCarrierAccount);
+        $this->assertStringMatchesFormat('ca_%s', $updatedCarrierAccount->id);
+        $this->assertEquals($testDescription, $updatedCarrierAccount->description);
 
-        $carrierAccount->delete(); // Delete the carrier account once it's done being tested.
+        // Delete the carrier account once it's done being tested.
+        self::$client->carrierAccount->delete($updatedCarrierAccount->id);
     }
 
     /**
@@ -99,13 +166,18 @@ class CarrierAccountTest extends \PHPUnit\Framework\TestCase
      */
     public function testDelete()
     {
-        VCR::insertCassette('carrier_accounts/delete.yml');
+        TestUtil::setupCassette('carrier_accounts/delete.yml');
 
-        $carrierAccount = CarrierAccount::create(Fixture::basicCarrierAccount());
+        self::$client = new EasyPostClient(getenv('EASYPOST_PROD_API_KEY'));
 
-        $response = $carrierAccount->delete();
+        $carrierAccount = self::$client->carrierAccount->create(Fixture::basicCarrierAccount());
 
-        $this->assertIsObject($response);
+        try {
+            self::$client->carrierAccount->delete($carrierAccount->id);
+            $this->assertTrue(true);
+        } catch (\Exception $exception) {
+            $this->fail('Exception thrown when we expected no error');
+        }
     }
 
     /**
@@ -113,9 +185,11 @@ class CarrierAccountTest extends \PHPUnit\Framework\TestCase
      */
     public function testTypes()
     {
-        VCR::insertCassette('carrier_accounts/types.yml');
+        TestUtil::setupCassette('carrier_accounts/types.yml');
 
-        $types = CarrierAccount::types();
+        self::$client = new EasyPostClient(getenv('EASYPOST_PROD_API_KEY'));
+
+        $types = self::$client->carrierAccount->types();
 
         $this->assertIsArray($types);
     }

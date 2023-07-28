@@ -1,5 +1,89 @@
 # CHANGELOG
 
+## v6.8.0 (2023-07-28)
+
+- Adds new `RequestHook` and `ResponseHook` events. (un)subscribe to them with the new `subscribeToRequestHook`, `subscribeToResponseHook`, `unsubscribeFromRequestHook`, or `unsubscribeFromResponseHook` methods of an `EasyPostClient`
+- Maps 400 status codes to new `BadRequestException` class
+
+## v6.7.0 (2023-06-06)
+
+- Migrates carrier metadata to GA (now available via `client.carrierMetadata.retrieve`)
+
+## v6.6.0 (2023-05-02)
+
+- Adds `retrieveEstimatedDeliveryDate` function to the Shipment class
+
+## v6.5.0 (2023-04-18)
+
+- Adds beta `retrieveCarrierMetadata` function
+- Improves Error Deserialization to dynamically handle edge cases that have a bad format
+
+## v6.4.0 (2023-04-04)
+
+- Add `getNextPage` function that retrieves the next page of results for a paginated collection
+
+## v6.3.1 (2023-03-22)
+
+- Adds missing `status_detail` property to Tracker
+- Fixes spelling of `weight` property on Parcel
+
+## v6.3.0 (2023-02-17)
+
+- Adds beta `retrieveStatelessRates` function
+- Adds `getLowestStatelessRate` utility
+- Correct HTTP 403 status responses to throw `ForbiddenException`
+- Various other small corrections and improvements
+
+## v6.2.0 (2023-01-18)
+
+- Added function to retrieve all pickups via `$client->pickup->all()`
+- Added payload functions `retrievePayload` and `retrieveAllPayloads` methods, accessible via `$client->event` service.
+
+## v6.1.0 (2023-01-11)
+
+- Adds new beta billing functionality for referral customer users, accessible via the `$client->betaReferralCustomer` service
+  - `addPaymentMethod` to add an existing Stripe bank account or credit card to your EasyPost account
+  - `refundByAmount` refunds you wallet balance by a specified amount
+  - `refundByPaymentLog` refunds you wallet balance by a specified payment log
+
+## v6.0.0 (2023-01-05)
+
+- Release final version of v6 that contains all the changes in the `v6.0.0-rc1` below
+
+## v6.0.0-rc1 (2022-12-15)
+
+- PHP 7.3 is no longer supported
+- Added a new `EasyPostClient` object which encapsulates the API key. All functions are called against this client allowing for thread-safety (eg: `$client->shipment->create()`)
+  - All instance methods and the ability to have objects update in-place has been removed due to this rearchitecture. When updating objects or performing actions on them (eg: creating a label/scanform), you will need to assign the return value to a variable and use that moving forward instead of relying on the object getting updated without capturing the new return value
+  - `->save()` instance methods are now `update()` static methods
+  - Functions no longer accept an API key as an optional parameter
+  - EasyPost objects no longer contain the logic associated with them; instead, we have `Services` for each EasyPost object. All the services are properties of an `EasyPostClient`. You can then call functions on a Service.
+- All function and parameter names are now camelCase. Previously we used a mix of camel and snake cases
+- Improves error exception handling (closes #7)
+  - Introduced ~2 dozen new exception types that extend from either `ApiException` or `EasyPostException`
+  - ApiExceptions will behave like the previous EasyPostException class did. They will include a `message`, `errors`, `code`, `httpStatus` and `httpBody`. This class extends the more generic EasyPostException which only contains a message, used for exceptions thrown directly from this library
+  - The `ecode` property of an `ApiException` is now just `code`
+- Functions that previously returned `true` now return void as there is no response body from the API (eg: `fundWallet`, `deletePaymentMethod`, `updateEmail`, `createList`)
+- Adopts `Guzzle` as the HTTP client for this library. This should provide a much more consistent experience, better encoding, and faster request times in some cases
+- The results of calling `allApiKeys` is no longer double wrapped with the mode of the API key (these are still accessible inside of each object)
+- `Requestor` has moved to `Http`, constants from `EasyPost` now live in `Constants`, `Error` moved to `Exception`
+- Occurances of `smartrate` are now `smartRate` and `Smartrate` are now `SmartRate` to match the documentation and API expectations
+- `Referral` is now `ReferralCustomer` to better match documentation and API expectation
+- `validateWebhook`, `getLowestSmartRate`, and `receiveEvent` are now under `EasyPost\Util\Util` as they do not make any API calls and do not need the associated client object
+  - The `receive` function previously in the namespace of `Event` is now called `receiveEvent` since it has been relocated to the generic Util namespace
+  - Internal, library only utilities have been moved to `EasyPost\Util\InternalUtil`
+- The beta `EndShipper` class has been removed, please use the generally available `EndShipper` class
+- Various properties and functions that were previously intended for private/protected use but were public have been corrected
+- All phpdoc type hints, descriptions, return values, and throws references were corrected or updated
+- All dependencies were bumped
+- Various other bug fixes and improvements were made along with addressing deprecation warnings
+
+## v5.8.0 (2022-12-01)
+
+- Adds carrier account creation routes requests correctly for carriers that require custom workflows
+- Instead of returning `null` when a list of child API keys cannot be returned (eg: when you call `api_keys` on a non-user object) it will return an empty list. The expected impact to end users is extremely low
+- Retrieving child user API keys for users with large numbers of child users should see much faster results as we now break on the match instead of iterating the entire list
+
 ## v5.7.0 (2022-09-21)
 
 - Adds Partner White Label (Referral) Support

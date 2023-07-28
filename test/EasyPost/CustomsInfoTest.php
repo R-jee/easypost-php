@@ -3,20 +3,19 @@
 namespace EasyPost\Test;
 
 use EasyPost\CustomsInfo;
-use EasyPost\EasyPost;
-use EasyPost\Test\Fixture;
-use VCR\VCR;
+use EasyPost\EasyPostClient;
 
 class CustomsInfoTest extends \PHPUnit\Framework\TestCase
 {
+    private static $client;
+
     /**
      * Setup the testing environment for this file.
      */
     public static function setUpBeforeClass(): void
     {
-        EasyPost::setApiKey(getenv('EASYPOST_TEST_API_KEY'));
-
-        VCR::turnOn();
+        TestUtil::setupVcrTests();
+        self::$client = new EasyPostClient(getenv('EASYPOST_TEST_API_KEY'));
     }
 
     /**
@@ -24,8 +23,7 @@ class CustomsInfoTest extends \PHPUnit\Framework\TestCase
      */
     public static function tearDownAfterClass(): void
     {
-        VCR::eject();
-        VCR::turnOff();
+        TestUtil::teardownVcrTests();
     }
 
     /**
@@ -33,11 +31,11 @@ class CustomsInfoTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreate()
     {
-        VCR::insertCassette('customs_info/create.yml');
+        TestUtil::setupCassette('customs_info/create.yml');
 
-        $customsInfo = CustomsInfo::create(Fixture::basicCustomsInfo());
+        $customsInfo = self::$client->customsInfo->create(Fixture::basicCustomsInfo());
 
-        $this->assertInstanceOf('\EasyPost\CustomsInfo', $customsInfo);
+        $this->assertInstanceOf(CustomsInfo::class, $customsInfo);
         $this->assertStringMatchesFormat('cstinfo_%s', $customsInfo->id);
         $this->assertEquals('NOEEI 30.37(a)', $customsInfo->eel_pfc);
     }
@@ -47,13 +45,13 @@ class CustomsInfoTest extends \PHPUnit\Framework\TestCase
      */
     public function testRetrieve()
     {
-        VCR::insertCassette('customs_info/retrieve.yml');
+        TestUtil::setupCassette('customs_info/retrieve.yml');
 
-        $customsInfo = CustomsInfo::create(Fixture::basicCustomsInfo());
+        $customsInfo = self::$client->customsInfo->create(Fixture::basicCustomsInfo());
 
-        $retrievedCustomsInfo = CustomsInfo::retrieve($customsInfo->id);
+        $retrievedCustomsInfo = self::$client->customsInfo->retrieve($customsInfo->id);
 
-        $this->assertInstanceOf('\EasyPost\CustomsInfo', $retrievedCustomsInfo);
+        $this->assertInstanceOf(CustomsInfo::class, $retrievedCustomsInfo);
         $this->assertEquals($customsInfo, $retrievedCustomsInfo);
     }
 }

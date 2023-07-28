@@ -2,22 +2,22 @@
 
 namespace EasyPost\Test;
 
-use EasyPost\EasyPost;
+use EasyPost\EasyPostClient;
+use EasyPost\Exception\General\EndOfPaginationException;
 use EasyPost\Refund;
-use EasyPost\Shipment;
-use EasyPost\Test\Fixture;
-use VCR\VCR;
+use Exception;
 
 class RefundTest extends \PHPUnit\Framework\TestCase
 {
+    private static $client;
+
     /**
      * Setup the testing environment for this file.
      */
     public static function setUpBeforeClass(): void
     {
-        EasyPost::setApiKey(getenv('EASYPOST_TEST_API_KEY'));
-
-        VCR::turnOn();
+        TestUtil::setupVcrTests();
+        self::$client = new EasyPostClient(getenv('EASYPOST_TEST_API_KEY'));
     }
 
     /**
@@ -25,8 +25,7 @@ class RefundTest extends \PHPUnit\Framework\TestCase
      */
     public static function tearDownAfterClass(): void
     {
-        VCR::eject();
-        VCR::turnOff();
+        TestUtil::teardownVcrTests();
     }
 
     /**
@@ -34,14 +33,15 @@ class RefundTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreate()
     {
-        VCR::insertCassette('refunds/create.yml');
+        TestUtil::setupCassette('refunds/create.yml');
 
-        $shipment = Shipment::create(Fixture::oneCallBuyShipment());
-        $retrievedShipment = Shipment::retrieve($shipment); // We need to retrieve the shipment so that the tracking_code has time to populate
+        $shipment = self::$client->shipment->create(Fixture::oneCallBuyShipment());
+        // We need to retrieve the shipment so that the tracking_code has time to populate
+        $retrievedShipment = self::$client->shipment->retrieve($shipment->id);
 
-        $refund = Refund::create([
+        $refund = self::$client->refund->create([
             'carrier' => Fixture::usps(),
-            'tracking_codes' => $retrievedShipment->tracking_code,
+            'tracking_codes' => [$retrievedShipment->tracking_code],
         ]);
 
         $this->assertStringMatchesFormat('rfnd_%s', $refund[0]->id);
@@ -53,9 +53,9 @@ class RefundTest extends \PHPUnit\Framework\TestCase
      */
     public function testAll()
     {
-        VCR::insertCassette('refunds/all.yml');
+        TestUtil::setupCassette('refunds/all.yml');
 
-        $refunds = Refund::all([
+        $refunds = self::$client->refund->all([
             'page_size' => Fixture::pageSize(),
         ]);
 
@@ -63,10 +63,35 @@ class RefundTest extends \PHPUnit\Framework\TestCase
 
         $this->assertLessThanOrEqual($refundsArray, Fixture::pageSize());
         $this->assertNotNull($refunds['has_more']);
-        $this->assertContainsOnlyInstancesOf('\EasyPost\Refund', $refundsArray);
+        $this->assertContainsOnlyInstancesOf(Refund::class, $refundsArray);
 
         // Return so other tests can reuse these objects
         return $refunds;
+    }
+
+    /**
+     * Test retrieving next page.
+     */
+    public function testGetNextPage()
+    {
+        TestUtil::setupCassette('refunds/getNextPage.yml');
+
+        try {
+            $refunds = self::$client->refund->all([
+                'page_size' => Fixture::pageSize(),
+            ]);
+            $nextPage = self::$client->refund->getNextPage($refunds, Fixture::pageSize());
+
+            $firstIdOfFirstPage = $refunds['refunds'][0]->id;
+            $secondIdOfSecondPage = $nextPage['refunds'][0]->id;
+
+            $this->assertNotEquals($firstIdOfFirstPage, $secondIdOfSecondPage);
+        } catch (Exception $error) {
+            if (!($error instanceof EndOfPaginationException)) {
+                throw new Exception('Test failed intentionally');
+            }
+            $this->assertTrue(true);
+        }
     }
 
     /**
@@ -74,15 +99,15 @@ class RefundTest extends \PHPUnit\Framework\TestCase
      */
     public function testRetrieve()
     {
-        VCR::insertCassette('refunds/retrieve.yml');
+        TestUtil::setupCassette('refunds/retrieve.yml');
 
-        $refunds = Refund::all([
+        $refunds = self::$client->refund->all([
             'page_size' => Fixture::pageSize(),
         ]);
 
-        $retrievedRefund = Refund::retrieve($refunds['refunds'][0]);
+        $retrievedRefund = self::$client->refund->retrieve($refunds['refunds'][0]->id);
 
-        $this->assertInstanceOf('\EasyPost\Refund', $retrievedRefund);
+        $this->assertInstanceOf(Refund::class, $retrievedRefund);
         $this->assertEquals($refunds['refunds'][0]->id, $retrievedRefund->id);
     }
 }

@@ -2,22 +2,22 @@
 
 namespace EasyPost\Test;
 
-use EasyPost\EasyPost;
+use EasyPost\EasyPostClient;
 use EasyPost\Insurance;
-use EasyPost\Shipment;
-use EasyPost\Test\Fixture;
-use VCR\VCR;
+use EasyPost\Exception\General\EndOfPaginationException;
+use Exception;
 
 class InsuranceTest extends \PHPUnit\Framework\TestCase
 {
+    private static $client;
+
     /**
      * Setup the testing environment for this file.
      */
     public static function setUpBeforeClass(): void
     {
-        EasyPost::setApiKey(getenv('EASYPOST_TEST_API_KEY'));
-
-        VCR::turnOn();
+        TestUtil::setupVcrTests();
+        self::$client = new EasyPostClient(getenv('EASYPOST_TEST_API_KEY'));
     }
 
     /**
@@ -25,8 +25,7 @@ class InsuranceTest extends \PHPUnit\Framework\TestCase
      */
     public static function tearDownAfterClass(): void
     {
-        VCR::eject();
-        VCR::turnOff();
+        TestUtil::teardownVcrTests();
     }
 
     /**
@@ -34,16 +33,16 @@ class InsuranceTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreate()
     {
-        VCR::insertCassette('insurance/create.yml');
+        TestUtil::setupCassette('insurance/create.yml');
 
-        $shipment = Shipment::create(Fixture::oneCallBuyShipment());
+        $shipment = self::$client->shipment->create(Fixture::oneCallBuyShipment());
 
         $insuranceData = Fixture::basicInsurance();
         $insuranceData['tracking_code'] = $shipment->tracking_code;
 
-        $insurance = Insurance::create($insuranceData);
+        $insurance = self::$client->insurance->create($insuranceData);
 
-        $this->assertInstanceOf('\EasyPost\Insurance', $insurance);
+        $this->assertInstanceOf(Insurance::class, $insurance);
         $this->assertStringMatchesFormat('ins_%s', $insurance->id);
         $this->assertEquals('100.00000', $insurance->amount);
     }
@@ -53,18 +52,18 @@ class InsuranceTest extends \PHPUnit\Framework\TestCase
      */
     public function testRetrieve()
     {
-        VCR::insertCassette('insurance/retrieve.yml');
+        TestUtil::setupCassette('insurance/retrieve.yml');
 
-        $shipment = Shipment::create(Fixture::oneCallBuyShipment());
+        $shipment = self::$client->shipment->create(Fixture::oneCallBuyShipment());
 
         $insuranceData = Fixture::basicInsurance();
         $insuranceData['tracking_code'] = $shipment->tracking_code;
 
-        $insurance = Insurance::create($insuranceData);
+        $insurance = self::$client->insurance->create($insuranceData);
 
-        $retrievedInsurance = Insurance::retrieve($insurance->id);
+        $retrievedInsurance = self::$client->insurance->retrieve($insurance->id);
 
-        $this->assertInstanceOf('\EasyPost\Insurance', $retrievedInsurance);
+        $this->assertInstanceOf(Insurance::class, $retrievedInsurance);
         $this->assertEquals($insurance, $retrievedInsurance);
     }
 
@@ -73,9 +72,9 @@ class InsuranceTest extends \PHPUnit\Framework\TestCase
      */
     public function testAll()
     {
-        VCR::insertCassette('insurance/all.yml');
+        TestUtil::setupCassette('insurance/all.yml');
 
-        $insurance = Insurance::all([
+        $insurance = self::$client->insurance->all([
             'page_size' => Fixture::pageSize(),
         ]);
 
@@ -83,6 +82,31 @@ class InsuranceTest extends \PHPUnit\Framework\TestCase
 
         $this->assertLessThanOrEqual($insuranceArray, Fixture::pageSize());
         $this->assertNotNull($insurance['has_more']);
-        $this->assertContainsOnlyInstancesOf('\EasyPost\Insurance', $insuranceArray);
+        $this->assertContainsOnlyInstancesOf(Insurance::class, $insuranceArray);
+    }
+
+    /**
+     * Test retrieving next page.
+     */
+    public function testGetNextPage()
+    {
+        TestUtil::setupCassette('insurance/getNextPage.yml');
+
+        try {
+            $insurances = self::$client->insurance->all([
+                'page_size' => Fixture::pageSize(),
+            ]);
+            $nextPage = self::$client->insurance->getNextPage($insurances, Fixture::pageSize());
+
+            $firstIdOfFirstPage = $insurances['insurances'][0]->id;
+            $secondIdOfSecondPage = $nextPage['insurances'][0]->id;
+
+            $this->assertNotEquals($firstIdOfFirstPage, $secondIdOfSecondPage);
+        } catch (Exception $error) {
+            if (!($error instanceof EndOfPaginationException)) {
+                throw new Exception('Test failed intentionally');
+            }
+            $this->assertTrue(true);
+        }
     }
 }

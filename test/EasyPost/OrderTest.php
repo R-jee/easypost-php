@@ -2,22 +2,22 @@
 
 namespace EasyPost\Test;
 
-use EasyPost\EasyPost;
-use EasyPost\Error;
+use EasyPost\EasyPostClient;
+use EasyPost\Exception\General\FilteringException;
 use EasyPost\Order;
-use EasyPost\Test\Fixture;
-use VCR\VCR;
+use EasyPost\Rate;
 
 class OrderTest extends \PHPUnit\Framework\TestCase
 {
+    private static $client;
+
     /**
      * Setup the testing environment for this file.
      */
     public static function setUpBeforeClass(): void
     {
-        EasyPost::setApiKey(getenv('EASYPOST_TEST_API_KEY'));
-
-        VCR::turnOn();
+        TestUtil::setupVcrTests();
+        self::$client = new EasyPostClient(getenv('EASYPOST_TEST_API_KEY'));
     }
 
     /**
@@ -25,8 +25,7 @@ class OrderTest extends \PHPUnit\Framework\TestCase
      */
     public static function tearDownAfterClass(): void
     {
-        VCR::eject();
-        VCR::turnOff();
+        TestUtil::teardownVcrTests();
     }
 
     /**
@@ -34,11 +33,11 @@ class OrderTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreate()
     {
-        VCR::insertCassette('orders/create.yml');
+        TestUtil::setupCassette('orders/create.yml');
 
-        $order = Order::create(Fixture::basicOrder());
+        $order = self::$client->order->create(Fixture::basicOrder());
 
-        $this->assertInstanceOf('\EasyPost\Order', $order);
+        $this->assertInstanceOf(Order::class, $order);
         $this->assertStringMatchesFormat('order_%s', $order->id);
         $this->assertNotNull($order->rates);
     }
@@ -48,13 +47,13 @@ class OrderTest extends \PHPUnit\Framework\TestCase
      */
     public function testRetrieve()
     {
-        VCR::insertCassette('orders/retrieve.yml');
+        TestUtil::setupCassette('orders/retrieve.yml');
 
-        $order = Order::create(Fixture::basicOrder());
+        $order = self::$client->order->create(Fixture::basicOrder());
 
-        $retrievedOrder = Order::retrieve($order->id);
+        $retrievedOrder = self::$client->order->retrieve($order->id);
 
-        $this->assertInstanceOf('\EasyPost\Order', $retrievedOrder);
+        $this->assertInstanceOf(Order::class, $retrievedOrder);
         $this->assertEquals($order->id, $retrievedOrder->id);
     }
 
@@ -63,16 +62,16 @@ class OrderTest extends \PHPUnit\Framework\TestCase
      */
     public function testGetRates()
     {
-        VCR::insertCassette('orders/getRates.yml');
+        TestUtil::setupCassette('orders/getRates.yml');
 
-        $order = Order::create(Fixture::basicOrder());
+        $order = self::$client->order->create(Fixture::basicOrder());
 
-        $rates = $order->get_rates();
+        $rates = self::$client->order->getRates($order->id);
 
         $ratesArray = $rates['rates'];
 
         $this->assertIsArray($ratesArray);
-        $this->assertContainsOnlyInstancesOf('\EasyPost\Rate', $ratesArray);
+        $this->assertContainsOnlyInstancesOf(Rate::class, $ratesArray);
     }
 
     /**
@@ -80,16 +79,19 @@ class OrderTest extends \PHPUnit\Framework\TestCase
      */
     public function testBuy()
     {
-        VCR::insertCassette('orders/buy.yml');
+        TestUtil::setupCassette('orders/buy.yml');
 
-        $order = Order::create(Fixture::basicOrder());
+        $order = self::$client->order->create(Fixture::basicOrder());
 
-        $order->buy([
-            'carrier' => Fixture::usps(),
-            'service' => Fixture::uspsService(),
-        ]);
+        $boughtOrder = self::$client->order->buy(
+            $order->id,
+            [
+                'carrier' => Fixture::usps(),
+                'service' => Fixture::uspsService(),
+            ]
+        );
 
-        $shipmentsArray = $order['shipments'];
+        $shipmentsArray = $boughtOrder['shipments'];
 
         foreach ($shipmentsArray as $shipment) {
             $this->assertNotNull($shipment->postage_label);
@@ -101,13 +103,13 @@ class OrderTest extends \PHPUnit\Framework\TestCase
      */
     public function testBuyRateObject()
     {
-        VCR::insertCassette('orders/buyRateObject.yml');
+        TestUtil::setupCassette('orders/buyRateObject.yml');
 
-        $order = Order::create(Fixture::basicOrder());
+        $order = self::$client->order->create(Fixture::basicOrder());
 
-        $order->buy($order->rates[0]);
+        $boughtOrder = self::$client->order->buy($order->id, $order->rates[0]);
 
-        $shipmentsArray = $order['shipments'];
+        $shipmentsArray = $boughtOrder['shipments'];
 
         foreach ($shipmentsArray as $shipment) {
             $this->assertNotNull($shipment->postage_label);
@@ -119,26 +121,26 @@ class OrderTest extends \PHPUnit\Framework\TestCase
      */
     public function testLowestRate()
     {
-        VCR::insertCassette('orders/lowestRate.yml');
+        TestUtil::setupCassette('orders/lowestRate.yml');
 
-        $order = Order::create(Fixture::basicOrder());
+        $order = self::$client->order->create(Fixture::basicOrder());
 
         // Test lowest rate with no filters
-        $lowestRate = $order->lowest_rate();
+        $lowestRate = $order->lowestRate();
         $this->assertEquals('First', $lowestRate['service']);
-        $this->assertEquals('5.57', $lowestRate['rate']);
+        $this->assertEquals('5.82', $lowestRate['rate']);
         $this->assertEquals('USPS', $lowestRate['carrier']);
 
         // Test lowest rate with service filter (this rate is higher than the lowest but should filter)
-        $lowestRate = $order->lowest_rate([], ['Priority']);
+        $lowestRate = $order->lowestRate([], ['Priority']);
         $this->assertEquals('Priority', $lowestRate['service']);
-        $this->assertEquals('7.90', $lowestRate['rate']);
+        $this->assertEquals('8.15', $lowestRate['rate']);
         $this->assertEquals('USPS', $lowestRate['carrier']);
 
         // Test lowest rate with carrier filter (should error due to bad carrier)
         try {
-            $lowestRate = $order->lowest_rate(['BAD CARRIER'], []);
-        } catch (Error $error) {
+            $lowestRate = $order->lowestRate(['BAD CARRIER'], []);
+        } catch (FilteringException $error) {
             $this->assertEquals('No rates found.', $error->getMessage());
         }
     }

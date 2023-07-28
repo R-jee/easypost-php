@@ -2,20 +2,21 @@
 
 namespace EasyPost\Test;
 
-use EasyPost\EasyPost;
+use EasyPost\ApiKey;
+use EasyPost\EasyPostClient;
 use EasyPost\User;
-use VCR\VCR;
 
 class UserTest extends \PHPUnit\Framework\TestCase
 {
+    private static $client;
+
     /**
      * Setup the testing environment for this file.
      */
     public static function setUpBeforeClass(): void
     {
-        EasyPost::setApiKey(getenv('EASYPOST_PROD_API_KEY'));
-
-        VCR::turnOn();
+        TestUtil::setupVcrTests();
+        self::$client = new EasyPostClient(getenv('EASYPOST_PROD_API_KEY'));
     }
 
     /**
@@ -23,8 +24,7 @@ class UserTest extends \PHPUnit\Framework\TestCase
      */
     public static function tearDownAfterClass(): void
     {
-        VCR::eject();
-        VCR::turnOff();
+        TestUtil::teardownVcrTests();
     }
 
     /**
@@ -32,17 +32,18 @@ class UserTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreate()
     {
-        VCR::insertCassette('users/create.yml');
+        TestUtil::setupCassette('users/create.yml');
 
-        $user = User::create([
+        $user = self::$client->user->create([
             'name' => 'Test User',
         ]);
 
-        $this->assertInstanceOf('\EasyPost\User', $user);
+        $this->assertInstanceOf(User::class, $user);
         $this->assertStringMatchesFormat('user_%s', $user->id);
         $this->assertEquals('Test User', $user->name);
 
-        $user->delete(); // Delete the user once done so we don't pollute with hundreds of child users
+        // Delete the user once done so we don't pollute with hundreds of child users
+        self::$client->user->delete($user->id);
     }
 
     /**
@@ -50,13 +51,13 @@ class UserTest extends \PHPUnit\Framework\TestCase
      */
     public function testRetrieve()
     {
-        VCR::insertCassette('users/retrieve.yml');
+        TestUtil::setupCassette('users/retrieve.yml');
 
-        $authenticatedUser = User::retrieve_me();
+        $authenticatedUser = self::$client->user->retrieveMe();
 
-        $user = User::retrieve($authenticatedUser['id']);
+        $user = self::$client->user->retrieve($authenticatedUser->id);
 
-        $this->assertInstanceOf('\EasyPost\User', $user);
+        $this->assertInstanceOf(User::class, $user);
         $this->assertStringMatchesFormat('user_%s', $user->id);
     }
 
@@ -65,11 +66,11 @@ class UserTest extends \PHPUnit\Framework\TestCase
      */
     public function testRetrieveMe()
     {
-        VCR::insertCassette('users/retrieveMe.yml');
+        TestUtil::setupCassette('users/retrieveMe.yml');
 
-        $user = User::retrieve_me();
+        $user = self::$client->user->retrieveMe();
 
-        $this->assertInstanceOf('\EasyPost\User', $user);
+        $this->assertInstanceOf(User::class, $user);
         $this->assertStringMatchesFormat('user_%s', $user->id);
     }
 
@@ -78,18 +79,19 @@ class UserTest extends \PHPUnit\Framework\TestCase
      */
     public function testUpdate()
     {
-        VCR::insertCassette('users/update.yml');
+        TestUtil::setupCassette('users/update.yml');
 
-        $user = User::retrieve_me();
+        $user = self::$client->user->retrieveMe();
 
-        $testPhone = '5555555555';
+        $testName = 'New Name';
+        $params = [];
+        $params['name'] = $testName;
 
-        $user->phone = $testPhone;
-        $user->save();
+        $updatedUser = self::$client->user->update($user->id, $params);
 
-        $this->assertInstanceOf('\EasyPost\User', $user);
-        $this->assertStringMatchesFormat('user_%s', $user->id);
-        $this->assertEquals($testPhone, $user->phone);
+        $this->assertInstanceOf(User::class, $updatedUser);
+        $this->assertStringMatchesFormat('user_%s', $updatedUser->id);
+        $this->assertEquals($testName, $updatedUser->name);
     }
 
     /**
@@ -97,15 +99,18 @@ class UserTest extends \PHPUnit\Framework\TestCase
      */
     public function testDelete()
     {
-        VCR::insertCassette('users/delete.yml');
+        TestUtil::setupCassette('users/delete.yml');
 
-        $user = User::create([
+        $user = self::$client->user->create([
             'name' => 'Test User',
         ]);
 
-        $response = $user->delete();
-
-        $this->assertNotNull($response);
+        try {
+            self::$client->user->delete($user->id);
+            $this->assertTrue(true);
+        } catch (\Exception $exception) {
+            $this->fail('Exception thrown when we expected no error');
+        }
     }
 
     /**
@@ -113,28 +118,48 @@ class UserTest extends \PHPUnit\Framework\TestCase
      */
     public function testAllApiKeys()
     {
-        VCR::insertCassette('users/all_api_keys.yml');
+        TestUtil::setupCassette('users/allApiKeys.yml');
 
-        $user = User::retrieve_me();
+        $apiKeys = self::$client->user->allApiKeys();
 
-        $apiKeys = $user->all_api_keys();
-
-        $this->assertNotNull($apiKeys->keys);
+        $this->assertContainsOnlyInstancesOf(ApiKey::class, $apiKeys['keys']);
+        foreach ($apiKeys['children'] as $child) {
+            $this->assertContainsOnlyInstancesOf(ApiKey::class, $child['keys']);
+        }
     }
 
     /**
      * Test retrieving the authenticated user's API keys.
      */
-    public function testApiKeys()
+    public function testAuthenticatedUserApiKeys()
     {
-        VCR::insertCassette('users/api_keys.yml');
+        TestUtil::setupCassette('users/authenticatedUserApiKeys.yml');
 
-        $user = User::retrieve_me();
+        $user = self::$client->user->retrieveMe();
 
-        $apiKeys = $user->api_keys();
+        $apiKeys = self::$client->user->apiKeys($user->id);
 
-        // Because we scrubbed the keys, the PHP lib returns an empty array instead of populating empty keys
-        $this->assertNotNull($apiKeys);
+        $this->assertContainsOnlyInstancesOf(ApiKey::class, $apiKeys);
+    }
+
+    /**
+     * Test retrieving the authenticated user's API keys.
+     */
+    public function testChildUserApiKeys()
+    {
+        TestUtil::setupCassette('users/childUserApiKeys.yml');
+
+        $user = self::$client->user->create([
+            'name' => 'Test User',
+        ]);
+        $childUser = self::$client->user->retrieve($user->id);
+
+        $apiKeys = self::$client->user->apiKeys($childUser->id);
+
+        $this->assertContainsOnlyInstancesOf(ApiKey::class, $apiKeys);
+
+        // Delete the user once done so we don't pollute with hundreds of child users
+        self::$client->user->delete($childUser->id);
     }
 
     /**
@@ -142,15 +167,16 @@ class UserTest extends \PHPUnit\Framework\TestCase
      */
     public function testUpdateBrand()
     {
-        VCR::insertCassette('users/brand.yml');
+        TestUtil::setupCassette('users/brand.yml');
 
-        $user = User::retrieve_me();
+        $user = self::$client->user->retrieveMe();
 
         $color = '#123456';
 
-        $brand = $user->update_brand([
-            'color' => $color,
-        ]);
+        $brand = self::$client->user->updateBrand(
+            $user->id,
+            ['color' => $color]
+        );
 
         $this->assertInstanceOf('\EasyPost\Brand', $brand);
         $this->assertStringMatchesFormat('brd_%s', $brand->id);

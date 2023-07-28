@@ -2,22 +2,22 @@
 
 namespace EasyPost\Test;
 
-use EasyPost\EasyPost;
-use EasyPost\Error;
-use EasyPost\Test\Fixture;
+use EasyPost\EasyPostClient;
+use EasyPost\Exception\General\SignatureVerificationException;
+use EasyPost\Util\Util;
 use EasyPost\Webhook;
-use VCR\VCR;
 
 class WebhookTest extends \PHPUnit\Framework\TestCase
 {
+    private static $client;
+
     /**
      * Setup the testing environment for this file.
      */
     public static function setUpBeforeClass(): void
     {
-        EasyPost::setApiKey(getenv('EASYPOST_TEST_API_KEY'));
-
-        VCR::turnOn();
+        TestUtil::setupVcrTests();
+        self::$client = new EasyPostClient(getenv('EASYPOST_TEST_API_KEY'));
     }
 
     /**
@@ -25,8 +25,7 @@ class WebhookTest extends \PHPUnit\Framework\TestCase
      */
     public static function tearDownAfterClass(): void
     {
-        VCR::eject();
-        VCR::turnOff();
+        TestUtil::teardownVcrTests();
     }
 
     /**
@@ -34,17 +33,18 @@ class WebhookTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreate()
     {
-        VCR::insertCassette('webhooks/create.yml');
+        TestUtil::setupCassette('webhooks/create.yml');
 
-        $webhook = Webhook::create([
+        $webhook = self::$client->webhook->create([
             'url' => Fixture::webhookUrl(),
         ]);
 
-        $this->assertInstanceOf('\EasyPost\Webhook', $webhook);
+        $this->assertInstanceOf(Webhook::class, $webhook);
         $this->assertStringMatchesFormat('hook_%s', $webhook->id);
         $this->assertEquals(Fixture::webhookUrl(), $webhook->url);
 
-        $webhook->delete(); // We are deleting the webhook here so we don't keep sending events to a dead webhook.
+        // We are deleting the webhook here so we don't keep sending events to a dead webhook.
+        self::$client->webhook->delete($webhook->id);
     }
 
     /**
@@ -52,18 +52,19 @@ class WebhookTest extends \PHPUnit\Framework\TestCase
      */
     public function testRetrieve()
     {
-        VCR::insertCassette('webhooks/retrieve.yml');
+        TestUtil::setupCassette('webhooks/retrieve.yml');
 
-        $webhook = Webhook::create([
+        $webhook = self::$client->webhook->create([
             'url' => Fixture::webhookUrl(),
         ]);
 
-        $retrievedWebhook = Webhook::retrieve($webhook->id);
+        $retrievedWebhook = self::$client->webhook->retrieve($webhook->id);
 
-        $this->assertInstanceOf('\EasyPost\Webhook', $retrievedWebhook);
+        $this->assertInstanceOf(Webhook::class, $retrievedWebhook);
         $this->assertEquals($webhook, $retrievedWebhook);
 
-        $webhook->delete(); // We are deleting the webhook here so we don't keep sending events to a dead webhook.
+        // We are deleting the webhook here so we don't keep sending events to a dead webhook.
+        self::$client->webhook->delete($retrievedWebhook->id);
     }
 
     /**
@@ -71,16 +72,16 @@ class WebhookTest extends \PHPUnit\Framework\TestCase
      */
     public function testAll()
     {
-        VCR::insertCassette('webhooks/all.yml');
+        TestUtil::setupCassette('webhooks/all.yml');
 
-        $webhooks = Webhook::all([
+        $webhooks = self::$client->webhook->all([
             'page_size' => Fixture::pageSize(),
         ]);
 
         $webhookArray = $webhooks['webhooks'];
 
         $this->assertLessThanOrEqual($webhookArray, Fixture::pageSize());
-        $this->assertContainsOnlyInstancesOf('\EasyPost\Webhook', $webhookArray);
+        $this->assertContainsOnlyInstancesOf(Webhook::class, $webhookArray);
     }
 
     /**
@@ -88,18 +89,19 @@ class WebhookTest extends \PHPUnit\Framework\TestCase
      */
     public function testUpdate()
     {
-        VCR::insertCassette('webhooks/update.yml');
+        TestUtil::setupCassette('webhooks/update.yml');
 
-        $webhook = Webhook::create([
+        $webhook = self::$client->webhook->create([
             'url' => Fixture::webhookUrl(),
         ]);
 
-        $response = $webhook->update();
+        $updatedWebhook = self::$client->webhook->update($webhook->id);
 
-        // This endpoint/method does not return anything useful, just make sure the request doesn't fail
-        $this->assertInstanceOf('\EasyPost\Webhook', $response);
+        // The response here won't differ since we don't update any data, just check we get the object back
+        $this->assertInstanceOf(Webhook::class, $updatedWebhook);
 
-        $response = $webhook->delete(); // We are deleting the webhook here so we don't keep sending events to a dead webhook.
+        // We are deleting the webhook here so we don't keep sending events to a dead webhook.
+        self::$client->webhook->delete($webhook->id);
     }
 
     /**
@@ -107,16 +109,18 @@ class WebhookTest extends \PHPUnit\Framework\TestCase
      */
     public function testDelete()
     {
-        VCR::insertCassette('webhooks/delete.yml');
+        TestUtil::setupCassette('webhooks/delete.yml');
 
-        $webhook = Webhook::create([
+        $webhook = self::$client->webhook->create([
             'url' => Fixture::webhookUrl(),
         ]);
 
-        $response = $webhook->delete();
-
-        // This endpoint/method does not return anything, just make sure the request doesn't fail
-        $this->assertInstanceOf('\EasyPost\Webhook', $response);
+        try {
+            self::$client->webhook->delete($webhook->id);
+            $this->assertTrue(true);
+        } catch (\Exception $exception) {
+            $this->fail('Exception thrown when we expected no error');
+        }
     }
 
     /**
@@ -131,7 +135,7 @@ class WebhookTest extends \PHPUnit\Framework\TestCase
             'X-Hmac-Signature' => $expectedHmacSignature
         ];
 
-        $webhookBody = Webhook::validateWebhook(Fixture::eventBytes(), $headers, $webhookSecret);
+        $webhookBody = Util::validateWebhook(Fixture::eventBytes(), $headers, $webhookSecret);
 
         $this->assertEquals('batch.created', $webhookBody->description);
     }
@@ -147,9 +151,12 @@ class WebhookTest extends \PHPUnit\Framework\TestCase
         ];
 
         try {
-            Webhook::validateWebhook(Fixture::eventBytes(), $headers, $webhookSecret);
-        } catch (Error $error) {
-            $this->assertEquals('Webhook received did not originate from EasyPost or had a webhook secret mismatch.', $error->getMessage());
+            Util::validateWebhook(Fixture::eventBytes(), $headers, $webhookSecret);
+        } catch (SignatureVerificationException $error) {
+            $this->assertEquals(
+                'Webhook received did not originate from EasyPost or had a webhook secret mismatch.',
+                $error->getMessage()
+            );
         }
     }
 
@@ -164,8 +171,8 @@ class WebhookTest extends \PHPUnit\Framework\TestCase
         ];
 
         try {
-            Webhook::validateWebhook(Fixture::eventBytes(), $headers, $webhookSecret);
-        } catch (Error $error) {
+            Util::validateWebhook(Fixture::eventBytes(), $headers, $webhookSecret);
+        } catch (SignatureVerificationException $error) {
             $this->assertEquals('Webhook received does not contain an HMAC signature.', $error->getMessage());
         }
     }

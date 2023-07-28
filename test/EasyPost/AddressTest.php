@@ -3,20 +3,22 @@
 namespace EasyPost\Test;
 
 use EasyPost\Address;
-use EasyPost\EasyPost;
-use EasyPost\Test\Fixture;
-use VCR\VCR;
+use EasyPost\EasyPostClient;
+use EasyPost\Exception\Api\ApiException;
+use EasyPost\Exception\General\EndOfPaginationException;
+use Exception;
 
 class AddressTest extends \PHPUnit\Framework\TestCase
 {
+    private static $client;
+
     /**
      * Setup the testing environment for this file.
      */
     public static function setUpBeforeClass(): void
     {
-        EasyPost::setApiKey(getenv('EASYPOST_TEST_API_KEY'));
-
-        VCR::turnOn();
+        TestUtil::setupVcrTests();
+        self::$client = new EasyPostClient(getenv('EASYPOST_TEST_API_KEY'));
     }
 
     /**
@@ -24,8 +26,7 @@ class AddressTest extends \PHPUnit\Framework\TestCase
      */
     public static function tearDownAfterClass(): void
     {
-        VCR::eject();
-        VCR::turnOff();
+        TestUtil::teardownVcrTests();
     }
 
     /**
@@ -33,11 +34,11 @@ class AddressTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreate()
     {
-        VCR::insertCassette('addresses/create.yml');
+        TestUtil::setupCassette('addresses/create.yml');
 
-        $address = Address::create(Fixture::caAddress1());
+        $address = self::$client->address->create(Fixture::caAddress1());
 
-        $this->assertInstanceOf('\EasyPost\Address', $address);
+        $this->assertInstanceOf(Address::class, $address);
         $this->assertStringMatchesFormat('adr_%s', $address->id);
         $this->assertEquals('388 Townsend St', $address->street1);
     }
@@ -49,17 +50,20 @@ class AddressTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreateVerify()
     {
-        VCR::insertCassette('addresses/createVerify.yml');
+        TestUtil::setupCassette('addresses/createVerify.yml');
 
         $addressData = Fixture::incorrectAddress();
         $addressData['verify'] = true;
 
-        $address = Address::create($addressData);
+        $address = self::$client->address->create($addressData);
 
-        $this->assertInstanceOf('\EasyPost\Address', $address);
+        $this->assertInstanceOf(Address::class, $address);
         $this->assertStringMatchesFormat('adr_%s', $address->id);
         $this->assertEquals('417 MONTGOMERY ST FL 5', $address->street1);
-        $this->assertEquals('Invalid secondary information(Apt/Suite#)', $address->verifications->zip4->errors[0]->message);
+        $this->assertEquals(
+            'Invalid secondary information(Apt/Suite#)',
+            $address->verifications->zip4->errors[0]->message
+        );
     }
 
     /**
@@ -67,14 +71,14 @@ class AddressTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreateVerifyStrict()
     {
-        VCR::insertCassette('addresses/createVerifyStrict.yml');
+        TestUtil::setupCassette('addresses/createVerifyStrict.yml');
 
         $addressData = Fixture::caAddress1();
         $addressData['verify_strict'] = true;
 
-        $address = Address::create($addressData);
+        $address = self::$client->address->create($addressData);
 
-        $this->assertInstanceOf('\EasyPost\Address', $address);
+        $this->assertInstanceOf(Address::class, $address);
         $this->assertStringMatchesFormat('adr_%s', $address->id);
         $this->assertEquals('388 TOWNSEND ST APT 20', $address->street1);
     }
@@ -86,17 +90,20 @@ class AddressTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreateVerifyArray()
     {
-        VCR::insertCassette('addresses/createVerifyArray.yml');
+        TestUtil::setupCassette('addresses/createVerifyArray.yml');
 
         $addressData = Fixture::incorrectAddress();
         $addressData['verify'] = [true];
 
-        $address = Address::create($addressData);
+        $address = self::$client->address->create($addressData);
 
-        $this->assertInstanceOf('\EasyPost\Address', $address);
+        $this->assertInstanceOf(Address::class, $address);
         $this->assertStringMatchesFormat('adr_%s', $address->id);
         $this->assertEquals('417 MONTGOMERY ST FL 5', $address->street1);
-        $this->assertEquals('Invalid secondary information(Apt/Suite#)', $address->verifications->zip4->errors[0]->message);
+        $this->assertEquals(
+            'Invalid secondary information(Apt/Suite#)',
+            $address->verifications->zip4->errors[0]->message
+        );
     }
 
     /**
@@ -104,13 +111,13 @@ class AddressTest extends \PHPUnit\Framework\TestCase
      */
     public function testRetrieve()
     {
-        VCR::insertCassette('addresses/retrieve.yml');
+        TestUtil::setupCassette('addresses/retrieve.yml');
 
-        $address = Address::create(Fixture::caAddress1());
+        $address = self::$client->address->create(Fixture::caAddress1());
 
-        $retrievedAddress = Address::retrieve($address->id);
+        $retrievedAddress = self::$client->address->retrieve($address->id);
 
-        $this->assertInstanceOf('\EasyPost\Address', $retrievedAddress);
+        $this->assertInstanceOf(Address::class, $retrievedAddress);
         $this->assertEquals($address, $retrievedAddress);
     }
 
@@ -119,9 +126,9 @@ class AddressTest extends \PHPUnit\Framework\TestCase
      */
     public function testAll()
     {
-        VCR::insertCassette('addresses/all.yml');
+        TestUtil::setupCassette('addresses/all.yml');
 
-        $addresses = Address::all([
+        $addresses = self::$client->address->all([
             'page_size' => Fixture::pageSize(),
         ]);
 
@@ -129,7 +136,32 @@ class AddressTest extends \PHPUnit\Framework\TestCase
 
         $this->assertLessThanOrEqual($addressesArray, Fixture::pageSize());
         $this->assertNotNull($addresses['has_more']);
-        $this->assertContainsOnlyInstancesOf('\EasyPost\Address', $addressesArray);
+        $this->assertContainsOnlyInstancesOf(Address::class, $addressesArray);
+    }
+
+    /**
+     * Test retrieving next page.
+     */
+    public function testGetNextPage()
+    {
+        TestUtil::setupCassette('addresses/getNextPage.yml');
+
+        try {
+            $addresses = self::$client->address->all([
+                'page_size' => Fixture::pageSize(),
+            ]);
+            $nextPage = self::$client->address->getNextPage($addresses, Fixture::pageSize());
+
+            $firstIdOfFirstPage = $addresses['addresses'][0]->id;
+            $secondIdOfSecondPage = $nextPage['addresses'][0]->id;
+
+            $this->assertNotEquals($firstIdOfFirstPage, $secondIdOfSecondPage);
+        } catch (Exception $error) {
+            if (!($error instanceof EndOfPaginationException)) {
+                throw new Exception('Test failed intentionally');
+            }
+            $this->assertTrue(true);
+        }
     }
 
     /**
@@ -139,13 +171,13 @@ class AddressTest extends \PHPUnit\Framework\TestCase
      */
     public function testCreateAndVerify()
     {
-        VCR::insertCassette('addresses/createAndVerify.yml');
+        TestUtil::setupCassette('addresses/createAndVerify.yml');
 
         $addressData = Fixture::incorrectAddress();
 
-        $address = Address::create_and_verify($addressData);
+        $address = self::$client->address->createAndVerify($addressData);
 
-        $this->assertInstanceOf('\EasyPost\Address', $address);
+        $this->assertInstanceOf(Address::class, $address);
         $this->assertStringMatchesFormat('adr_%s', $address->id);
         $this->assertEquals('417 MONTGOMERY ST FL 5', $address->street1);
     }
@@ -155,13 +187,13 @@ class AddressTest extends \PHPUnit\Framework\TestCase
      */
     public function testVerify()
     {
-        VCR::insertCassette('addresses/verify.yml');
+        TestUtil::setupCassette('addresses/verify.yml');
 
-        $address = Address::create(Fixture::caAddress1());
+        $address = self::$client->address->create(Fixture::caAddress1());
 
-        $address->verify();
+        self::$client->address->verify($address->id);
 
-        $this->assertInstanceOf('\EasyPost\Address', $address);
+        $this->assertInstanceOf(Address::class, $address);
         $this->assertStringMatchesFormat('adr_%s', $address->id);
         $this->assertEquals('388 Townsend St', $address->street1);
     }
@@ -171,12 +203,12 @@ class AddressTest extends \PHPUnit\Framework\TestCase
      */
     public function testVerifyInvalid()
     {
-        VCR::insertCassette('addresses/verifyInvalid.yml');
+        TestUtil::setupCassette('addresses/verifyInvalid.yml');
 
         try {
-            $address = Address::create(['street1' => 'invalid']);
-            $address->verify();
-        } catch (\EasyPost\Error $error) {
+            $address = self::$client->address->create(['street1' => 'invalid']);
+            self::$client->address->verify($address->id);
+        } catch (ApiException $error) {
             $this->assertEquals('Unable to verify address.', $error->getMessage());
         }
     }

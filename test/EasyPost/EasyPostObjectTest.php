@@ -2,17 +2,27 @@
 
 namespace EasyPost\Test;
 
-use EasyPost\EasyPost;
-use EasyPost\Util;
+use EasyPost\EasyPostClient;
+use EasyPost\Util\InternalUtil;
 
 class EasyPostObjectTest extends \PHPUnit\Framework\TestCase
 {
+    private static $client;
+
+    /**
+     * Setup the testing environment for this file.
+     */
+    public static function setUpBeforeClass(): void
+    {
+        self::$client = new EasyPostClient(getenv('EASYPOST_TEST_API_KEY'));
+    }
+
     /**
      * Test using `isset` magic method.
      */
     public function testIssetMagicMethod()
     {
-        $object = Util::convertToEasyPostObject(Fixture::caAddress1(), null);
+        $object = InternalUtil::convertToEasyPostObject(self::$client, Fixture::caAddress1());
 
         $isset = isset($object->name);
 
@@ -20,14 +30,15 @@ class EasyPostObjectTest extends \PHPUnit\Framework\TestCase
     }
 
     /**
-     * Test using `get` magic method.
+     * Test using `get` magic method with an invalid property.
      */
-    public function testGetMagicMethod()
+    public function testGetMagicMethodInvalidProperty()
     {
-        $object = Util::convertToEasyPostObject(Fixture::caAddress1(), null);
+        $object = InternalUtil::convertToEasyPostObject(self::$client, Fixture::caAddress1());
 
         $invalidProperty = $object->invalidProperty;
 
+        // TODO: This doesn't capture the `error_log()` call correctly, refactor the code so we can test this output
         $this->assertNull($invalidProperty);
     }
 
@@ -36,7 +47,7 @@ class EasyPostObjectTest extends \PHPUnit\Framework\TestCase
      */
     public function testPrintObject()
     {
-        $object = Util::convertToEasyPostObject(Fixture::caAddress1(), null);
+        $object = InternalUtil::convertToEasyPostObject(self::$client, Fixture::caAddress1());
 
         echo $object;
         $this->expectOutputString('{
